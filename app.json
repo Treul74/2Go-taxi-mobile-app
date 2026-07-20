@@ -1,0 +1,66 @@
+{
+  "expo": {
+    "name": "2Go",
+    "slug": "2go-taxi",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./src/assets/images/icon.png",
+    "scheme": "twogo",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.twogo.lusaka"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#26344F",
+        "foregroundImage": "./src/assets/images/android-icon-foreground.png",
+        "backgroundImage": "./src/assets/images/android-icon-background.png",
+        "monochromeImage": "./src/assets/images/android-icon-monochrome.png"
+      },
+      "edgeToEdgeEnabled": true,
+      "predictiveBackGestureEnabled": false,
+      "package": "com.twogo.lusaka",
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION"
+      ]
+    },
+    "web": {
+      "output": "static",
+      "favicon": "./src/assets/images/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Allow 2Go to access your location for navigation.",
+          "locationAlwaysAndWhenInUsePermission": "Allow 2Go to access your location even when the app is closed for navigation.",
+          "isAndroidBackgroundLocationEnabled": true
+        }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "image": "./src/assets/images/asset_splash_screen.png",
+          "resizeMode": "cover",
+          "backgroundColor": "#26344F"
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "d754fa94-021a-4c21-8a87-e1ecb69a2117"
+      }
+    },
+    "owner": "treul"
+  }
+}

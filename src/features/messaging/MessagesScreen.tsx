@@ -1,0 +1,72 @@
+import React from 'react';
+import { View, Text, ScrollView, StatusBar } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { router } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
+import { ConversationItem } from './components';
+import { useMessagingStore } from '@/state';
+
+/**
+ * Messages screen showing conversation list
+ */
+export function MessagesScreen() {
+  const conversations = useMessagingStore((state) => state.conversations);
+  
+  // Sort conversations by last message time
+  const sortedConversations = [...conversations].sort(
+    (a, b) => new Date(b.lastMessageTime).getTime() - new Date(a.lastMessageTime).getTime()
+  );
+  
+  // Handle conversation press
+  const handleConversationPress = (id: string) => {
+    router.push(`/chat/${id}`);
+  };
+  
+  return (
+    <View className="flex-1 bg-background">
+      <StatusBar barStyle="dark-content" backgroundColor="#E7F1F9" />
+      
+      <SafeAreaView className="flex-1" edges={['top']}>
+        {/* Header */}
+        <View className="px-5 pt-4 pb-4 bg-background">
+          <Text className="text-primary font-bold text-2xl">
+            Messages
+          </Text>
+          <Text className="text-secondary text-sm mt-1">
+            Chat with your drivers and support
+          </Text>
+        </View>
+        
+        {/* Conversation list */}
+        <ScrollView
+          className="flex-1 bg-white"
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{ paddingBottom: 120 }}
+        >
+          {sortedConversations.length === 0 ? (
+            <View className="items-center py-16 px-8">
+              <View className="w-20 h-20 rounded-full bg-gray-100 items-center justify-center mb-4">
+                <Ionicons name="chatbubbles-outline" size={40} color="#7B8387" />
+              </View>
+              <Text className="text-primary font-semibold text-lg">
+                No messages yet
+              </Text>
+              <Text className="text-secondary text-sm text-center mt-2">
+                Your conversations with drivers and support will appear here
+              </Text>
+            </View>
+          ) : (
+            sortedConversations.map((conversation) => (
+              <ConversationItem
+                key={conversation.id}
+                conversation={conversation}
+                onPress={handleConversationPress}
+              />
+            ))
+          )}
+        </ScrollView>
+      </SafeAreaView>
+    </View>
+  );
+}
+

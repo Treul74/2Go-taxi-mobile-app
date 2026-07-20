@@ -1,0 +1,2 @@
+export { WalletScreen } from './WalletScreen';
+
