@@ -43,6 +43,7 @@ export function AccountScreen({ onBack }: AccountScreenProps) {
   const handleRoleChange = (nextRole: typeof role) => {
     if (nextRole === 'driver' && driverAccount?.accountStatus !== 'approved') return;
     setRole(nextRole);
+    router.replace(nextRole === 'driver' ? '/(tabs)' : '/discover');
   };
 
   // Handle delete address

@@ -18,3 +18,11 @@ export function calculateDistanceKm(lat1: number, lon1: number, lat2: number, lo
 export function calculateDistanceMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
     return haversine(lat1, lon1, lat2, lon2, 6371000);
 }
+
+/** Formats a live distance-to-maneuver value for turn-by-turn HUD countdown text. */
+export function formatManeuverDistance(meters: number): string {
+    if (meters >= 1000) {
+        return `${(meters / 1000).toFixed(1)} km`;
+    }
+    return `${Math.round(meters)}m`;
+}

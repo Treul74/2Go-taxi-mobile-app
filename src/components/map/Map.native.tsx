@@ -10,7 +10,7 @@ import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 import type { MapProps } from './Map';
 import { MapPlaceholder } from './MapPlaceholder';
-import { AnimatedUserLocation, AnimatedVehicleMarker, SearchPulseMarker, UserLocationMarker } from './markers';
+import { AnimatedUserLocation, AnimatedVehicleMarker, NavigationArrowMarker, SearchPulseMarker, UserLocationMarker } from './markers';
 
 // Lazy import react-native-maps to handle missing native modules gracefully
 let MapView: any = null;
@@ -58,6 +58,7 @@ export const Map = React.forwardRef<any, MapProps>(({
   driverLocation,
   driverHeading = 0,
   driverVehicleVariant = 'comfort',
+  navigationArrowMode = false,
   vehicles = [],
   showPickupAsUserLocation = false,
   showSearchPulse = false,
@@ -68,6 +69,7 @@ export const Map = React.forwardRef<any, MapProps>(({
   eta,
   etaPosition,
   showZoomControls = false,
+  hidePickupPin = false,
 }: MapProps, ref) => {
   const mapRef = useRef<any>(null);
   const [isReady, setIsReady] = useState(false);
@@ -293,20 +295,41 @@ export const Map = React.forwardRef<any, MapProps>(({
         rotateEnabled={true}
         pitchEnabled={true}
         toolbarEnabled={false}
+        mapPadding={navigationArrowMode ? { top: 0, right: 0, bottom: 200, left: 0 } : { top: 0, right: 0, bottom: 0, left: 0 }}
         onMapReady={handleMapReady}
         onPress={handleMapPress}
         onPanDrag={onPanDrag}
         onRegionChangeComplete={onRegionChangeComplete}
       >
-        {/* Driver vehicle marker — animated top-down car (Uber style),
-            snapped to the route path with a road-derived heading */}
-        {snappedDriver && (
-          <AnimatedVehicleMarker
-            key="driver-marker"
-            coordinate={snappedDriver.position}
-            heading={snappedDriver.heading}
-            variant={driverVehicleVariant}
-          />
+        {/* Driver marker — animated top-down car (Uber style) normally, or a
+            heading-aware directional arrow during turn-by-turn navigation.
+            Both are snapped to the route path with a road-derived heading. */}
+        {snappedDriver ? (
+          navigationArrowMode ? (
+            <NavigationArrowMarker
+              key="driver-marker"
+              coordinate={snappedDriver.position}
+              heading={snappedDriver.heading}
+            />
+          ) : (
+            <AnimatedVehicleMarker
+              key="driver-marker"
+              coordinate={snappedDriver.position}
+              heading={snappedDriver.heading}
+              variant={driverVehicleVariant}
+            />
+          )
+        ) : (
+          // Fallback: snappedDriver is null (e.g. before the road-snap hook has
+          // a fix), but a raw driverLocation is already available — use it
+          // directly so the arrow has coordinates to render immediately.
+          navigationArrowMode && driverLocation && (
+            <NavigationArrowMarker
+              key="driver-marker"
+              coordinate={driverLocation}
+              heading={driverHeading}
+            />
+          )
         )}
 
         {/* Nearby Transporter vehicles */}
@@ -353,15 +376,17 @@ export const Map = React.forwardRef<any, MapProps>(({
               <UserLocationMarker />
             </Marker>
           ) : (
-            <Marker
-              coordinate={{
-                latitude: pickup.latitude,
-                longitude: pickup.longitude,
-              }}
-              title="Pickup"
-              description={pickup.address}
-              pinColor="#00D26A"
-            />
+            !hidePickupPin && (
+              <Marker
+                coordinate={{
+                  latitude: pickup.latitude,
+                  longitude: pickup.longitude,
+                }}
+                title="Pickup"
+                description={pickup.address}
+                pinColor="#00D26A"
+              />
+            )
           )
         )}
 

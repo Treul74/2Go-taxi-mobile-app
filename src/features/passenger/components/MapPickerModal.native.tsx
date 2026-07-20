@@ -5,7 +5,7 @@ import type { Location } from '@/types';
 import { Ionicons } from '@expo/vector-icons';
 import * as LocationAPI from 'expo-location';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Modal, Platform, Pressable, StatusBar, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, LayoutChangeEvent, Modal, Platform, Pressable, StatusBar, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 interface MapPickerModalProps {
@@ -65,6 +65,10 @@ export function MapPickerModal({
     latitude: initialLocation?.latitude || -15.4167,
     longitude: initialLocation?.longitude || 28.2833,
   });
+  // Measured height of the info card + footer group, so the floating back
+  // button can sit flush above it regardless of address length, the snap
+  // badge, or per-device safe-area insets.
+  const [bottomCardHeight, setBottomCardHeight] = useState(0);
 
   const mapRef = useRef<any>(null);
   const geocodeTimeoutRef = useRef<number | null>(null);
@@ -189,6 +193,10 @@ export function MapPickerModal({
     };
   };
 
+  const handleBottomCardLayout = useCallback((event: LayoutChangeEvent) => {
+    setBottomCardHeight(event.nativeEvent.layout.height);
+  }, []);
+
   const toggleMapType = () => {
     setMapType(prev => {
       if (prev === 'standard') return 'terrain';
@@ -229,14 +237,15 @@ export function MapPickerModal({
       <View style={styles.container}>
         <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent />
 
-        {/* Floating Back Button - Positioned to avoid status bar and respect user's "middle-left" request */}
+        {/* Floating Back Button - Anchored just above the bottom card, whatever its height */}
         <BackButton
           onPress={onClose}
-          size="lg"
+          size="md"
+          color="#1A1A1A"
           style={[
             styles.backButton,
             {
-              top: insets.top + (Platform.OS === 'ios' ? 450 : 460),
+              bottom: bottomCardHeight + 12,
             }
           ]}
         />
@@ -315,55 +324,59 @@ export function MapPickerModal({
           </View>
         </View>
 
-        {/* Selected location info */}
-        {selectedLocation && (
-          <View style={styles.infoCard}>
-            {isGeocoding ? (
-              <View style={styles.loadingContainer}>
-                <ActivityIndicator size="small" color="#FE5035" />
-                <Text style={styles.loadingText}>Getting address...</Text>
-              </View>
-            ) : (
-              <>
-                <View style={styles.infoRow}>
-                  <Ionicons name="location-outline" size={20} color="#26344F" />
-                  <Text style={styles.infoText} numberOfLines={2}>
-                    {formatDisplayAddress(selectedLocation.address) || 'Unknown location'}
-                  </Text>
-                  {snapToRoad && (
-                    <View style={styles.snapBadge}>
-                      <Ionicons name="checkmark-circle" size={14} color="#00D26A" />
-                      <Text style={styles.snapBadgeText}>Snapped</Text>
-                    </View>
-                  )}
+        {/* Bottom card group (info card + footer) - measured so the back
+            button above can anchor to its actual rendered height */}
+        <View onLayout={handleBottomCardLayout}>
+          {/* Selected location info */}
+          {selectedLocation && (
+            <View style={styles.infoCard}>
+              {isGeocoding ? (
+                <View style={styles.loadingContainer}>
+                  <ActivityIndicator size="small" color="#FE5035" />
+                  <Text style={styles.loadingText}>Getting address...</Text>
                 </View>
+              ) : (
+                <>
+                  <View style={styles.infoRow}>
+                    <Ionicons name="location-outline" size={20} color="#26344F" />
+                    <Text style={styles.infoText} numberOfLines={2}>
+                      {formatDisplayAddress(selectedLocation.address) || 'Unknown location'}
+                    </Text>
+                    {snapToRoad && (
+                      <View style={styles.snapBadge}>
+                        <Ionicons name="checkmark-circle" size={14} color="#00D26A" />
+                        <Text style={styles.snapBadgeText}>Snapped</Text>
+                      </View>
+                    )}
+                  </View>
 
-                <Text style={styles.coordsText}>
-                  {selectedLocation.latitude.toFixed(6)}, {selectedLocation.longitude.toFixed(6)}
-                </Text>
-              </>
-            )}
-          </View>
-        )}
+                  <Text style={styles.coordsText}>
+                    {selectedLocation.latitude.toFixed(6)}, {selectedLocation.longitude.toFixed(6)}
+                  </Text>
+                </>
+              )}
+            </View>
+          )}
 
-        {/* Confirm button */}
-        <SafeAreaView edges={['bottom']} style={styles.footerSafeArea}>
-          <View style={styles.footer}>
-            <Text style={styles.instructionText}>
-              Drag the map to select your location
-            </Text>
+          {/* Confirm button */}
+          <SafeAreaView edges={['bottom']} style={styles.footerSafeArea}>
+            <View style={styles.footer}>
+              <Text style={styles.instructionText}>
+                Drag the map to select your location
+              </Text>
 
-            <Button
-              variant="accent"
-              size="lg"
-              fullWidth
-              onPress={handleConfirm}
-              disabled={!selectedLocation || isGeocoding}
-            >
-              Confirm Location
-            </Button>
-          </View>
-        </SafeAreaView>
+              <Button
+                variant="accent"
+                size="lg"
+                fullWidth
+                onPress={handleConfirm}
+                disabled={!selectedLocation || isGeocoding}
+              >
+                Confirm Location
+              </Button>
+            </View>
+          </SafeAreaView>
+        </View>
       </View>
     </Modal>
   );
@@ -376,7 +389,7 @@ const styles = StyleSheet.create({
   },
   backButton: {
     position: 'absolute',
-    left: 20,
+    left: 16,
     zIndex: 100,
   },
   mapTypeButton: {

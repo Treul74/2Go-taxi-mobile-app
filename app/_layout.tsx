@@ -111,15 +111,18 @@ export default function RootLayout() {
     })();
   }, [appReady]);
 
-  // Every fresh launch of an already-logged-in session must land on the
-  // 'Where to?' discover screen, not wherever navigation history last left
-  // off (e.g. the tabs' Home screen) — this fires once per app start, right
-  // as the protected stack becomes reachable, and never again this session.
+  // Every fresh launch of an already-logged-in session must land on a fixed
+  // screen, not wherever navigation history last left off (e.g. the tabs'
+  // Home screen) — this fires once per app start, right as the protected
+  // stack becomes reachable, and never again this session. Passengers land
+  // on the 'Where to?' discover screen; a restored driver session (see
+  // userStore.loadAccounts) lands directly on the driver tabs instead.
   const hasLandedOnLaunch = useRef(false);
   useEffect(() => {
     if (!appReady || !authed || hasLandedOnLaunch.current) return;
     hasLandedOnLaunch.current = true;
-    router.replace('/discover');
+    const role = useUserStore.getState().role;
+    router.replace(role === 'driver' ? '/(tabs)' : '/discover');
   }, [appReady, authed]);
 
   return (
