@@ -1,15 +1,22 @@
-import { Map } from '@/components/map';
+import { CompassButton, Map } from '@/components/map';
 import { Button, Card, RideActionSlider } from '@/components/ui';
 import { useDriverTelemetryPing } from '@/hooks';
-import { calculateDistanceKm, calculateDistanceMeters } from '@/lib/distance';
+import { useTurnPreview } from '@/hooks/useTurnPreview';
+import { calculateDistanceKm, calculateDistanceMeters, formatManeuverDistance } from '@/lib/distance';
 import { getDirections, type DirectionStep } from '@/lib/google/mapsApi';
+import { getManeuverIconName } from '@/lib/maneuverIcon';
 import { useDriverStore } from '@/state';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Linking, Pressable, Text, View } from 'react-native';
+import { Alert, Animated, Linking, Pressable, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+
+/** Heading-up navigation camera tilt/zoom, matched to app/(tabs)/navigate.tsx. */
+const NAV_CAMERA_PITCH = 45;
+const NAV_CAMERA_ALTITUDE = 500;
+const NAV_CAMERA_ZOOM = 17;
 
 /**
  * Driver Navigation Screen
@@ -36,6 +43,7 @@ export default function DriverNavigationScreen() {
     const [routeEta, setRouteEta] = useState<string | null>(null);
     const [routeSteps, setRouteSteps] = useState<DirectionStep[]>([]);
     const [activeStepIndex, setActiveStepIndex] = useState(0);
+    const [distanceToManeuverMeters, setDistanceToManeuverMeters] = useState<number | null>(null);
     const [isNavigating, setIsNavigating] = useState(false);
     const [isCalculating, setIsCalculating] = useState(false);
     const [routeError, setRouteError] = useState(false);
@@ -60,7 +68,7 @@ export default function DriverNavigationScreen() {
                 if (status !== 'granted') return;
 
                 const initial = await Location.getCurrentPositionAsync({
-                    accuracy: Location.Accuracy.High,
+                    accuracy: Location.Accuracy.BestForNavigation,
                 }).catch(() => null);
 
                 if (initial) {
@@ -73,13 +81,15 @@ export default function DriverNavigationScreen() {
 
                 subscription = await Location.watchPositionAsync(
                     {
-                        accuracy: Location.Accuracy.High,
+                        accuracy: Location.Accuracy.BestForNavigation,
                         distanceInterval: 1,
                         timeInterval: 1000,
                     },
                     (location) => {
                         setDriverLocation(location.coords);
                         updateLocation(location.coords.latitude, location.coords.longitude);
+                        // Falls back to the existing heading state (initially 0) when
+                        // GPS can't derive one, e.g. indoors — never crashes.
                         if (location.coords.heading !== null) {
                             setDriverHeading(location.coords.heading);
                         }
@@ -204,9 +214,11 @@ export default function DriverNavigationScreen() {
     }, [driverLocation?.latitude, driverLocation?.longitude, currentTrip.pickup.latitude, currentTrip.pickup.longitude]);
 
     const currentStep = routeSteps[activeStepIndex];
-    const nextTurnDistance = currentStep?.distance?.text || '...';
+    const nextTurnDistance = distanceToManeuverMeters != null ? formatManeuverDistance(distanceToManeuverMeters) : '...';
     const stripHtml = (value: string) => value.replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim();
     const currentRoad = currentStep?.instruction ? stripHtml(currentStep.instruction) : '...';
+    const { pulseScale: turnPulseScale, color: turnDistanceColorValue } = useTurnPreview(distanceToManeuverMeters);
+    const nextManeuverIcon = getManeuverIconName(currentStep?.maneuver);
 
     // Auto-follow logic: resumes following after 5 seconds of no interaction
     useEffect(() => {
@@ -226,7 +238,12 @@ export default function DriverNavigationScreen() {
         setLastInteraction(Date.now());
     };
 
-    // Camera follow mode for navigation
+    const handleCompassPress = () => {
+        mapRef.current?.animateCamera?.({ heading: 0 }, 700);
+    };
+
+    // Heading-up camera for navigation: rotates so the direction of travel
+    // always faces up on screen, like Waze/Google Maps navigation.
     useEffect(() => {
         if (!isNavigating || !driverLocation || !isAutoFollow) return;
         if (mapRef.current?.animateCamera) {
@@ -235,24 +252,33 @@ export default function DriverNavigationScreen() {
                     latitude: driverLocation.latitude,
                     longitude: driverLocation.longitude,
                 },
-                zoom: 17.5,
                 heading: driverHeading || 0,
-                pitch: 55,
+                pitch: NAV_CAMERA_PITCH,
+                altitude: NAV_CAMERA_ALTITUDE,
+                zoom: NAV_CAMERA_ZOOM,
             }, 700);
         }
     }, [driverLocation?.latitude, driverLocation?.longitude, driverHeading, isNavigating, isAutoFollow]);
 
-    // Advance to next step when close to current step end
+    // Advance to next step when close to current step end — also tracks live
+    // distance to the upcoming maneuver for the turn preview pulse/color escalation.
     useEffect(() => {
-        if (!driverLocation || routeSteps.length === 0) return;
+        if (!driverLocation || routeSteps.length === 0) {
+            setDistanceToManeuverMeters(null);
+            return;
+        }
         const step = routeSteps[activeStepIndex];
-        if (!step) return;
+        if (!step) {
+            setDistanceToManeuverMeters(null);
+            return;
+        }
         const meters = calculateDistanceMeters(
             driverLocation.latitude,
             driverLocation.longitude,
             step.endLocation.latitude,
             step.endLocation.longitude
         );
+        setDistanceToManeuverMeters(meters);
         if (meters < 25 && activeStepIndex < routeSteps.length - 1) {
             setActiveStepIndex((idx) => Math.min(idx + 1, routeSteps.length - 1));
         }
@@ -291,6 +317,7 @@ export default function DriverNavigationScreen() {
                     ref={mapRef}
                     driverLocation={driverLocation || undefined}
                     driverHeading={driverHeading}
+                    navigationArrowMode={isNavigating}
                     pickup={currentTrip.pickup}
                     showRoute={routeCoordinates.length > 0} // Always show route if available
                     routeCoordinates={routeCoordinates}
@@ -311,19 +338,34 @@ export default function DriverNavigationScreen() {
                 {isNavigating && (
                     <View className="px-5 pt-2" pointerEvents="box-none">
                         <View className="bg-white/95 rounded-2xl px-4 py-3 shadow-card border border-white/20 flex-row items-center justify-between">
-                            <View className="flex-1 pr-3">
-                                <Text className="text-secondary text-[10px] mb-1">NEXT</Text>
-                                <Text className="text-primary font-bold" numberOfLines={1}>
-                                    {currentRoad}
-                                </Text>
+                            <View className="flex-row items-center flex-1 pr-3">
+                                <Animated.View
+                                    className="w-8 h-8 rounded-full bg-primary/10 items-center justify-center mr-3"
+                                    style={{ transform: [{ scale: turnPulseScale }] }}
+                                >
+                                    <Ionicons name={nextManeuverIcon} size={18} color="#26344F" />
+                                </Animated.View>
+                                <View className="flex-1">
+                                    <Text className="text-secondary text-[10px] mb-1">NEXT</Text>
+                                    <Text className="text-primary font-bold" numberOfLines={1}>
+                                        {currentRoad}
+                                    </Text>
+                                </View>
                             </View>
                             <View className="items-end">
                                 <Text className="text-secondary text-[10px]">IN</Text>
-                                <Text className="text-primary font-bold text-lg">
+                                <Text className="font-bold text-lg" style={{ color: turnDistanceColorValue }}>
                                     {nextTurnDistance}
                                 </Text>
                             </View>
                         </View>
+                    </View>
+                )}
+
+                {/* Compass */}
+                {isNavigating && (
+                    <View className="absolute top-24 right-5" pointerEvents="auto">
+                        <CompassButton heading={driverHeading} onPress={handleCompassPress} />
                     </View>
                 )}
 

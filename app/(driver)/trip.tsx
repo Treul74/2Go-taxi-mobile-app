@@ -58,7 +58,7 @@ export default function DriverTripScreen() {
                 if (status !== 'granted') return;
 
                 const initial = await Location.getCurrentPositionAsync({
-                    accuracy: Location.Accuracy.High,
+                    accuracy: Location.Accuracy.BestForNavigation,
                 }).catch(() => null);
 
                 if (initial) {
@@ -71,7 +71,7 @@ export default function DriverTripScreen() {
 
                 subscription = await Location.watchPositionAsync(
                     {
-                        accuracy: Location.Accuracy.High,
+                        accuracy: Location.Accuracy.BestForNavigation,
                         distanceInterval: 1,
                         timeInterval: 1000,
                     },
@@ -142,9 +142,10 @@ export default function DriverTripScreen() {
                     latitude: driverLocation.latitude,
                     longitude: driverLocation.longitude,
                 },
-                zoom: 17.5,
                 heading: driverHeading || 0,
-                pitch: 55,
+                pitch: 45,
+                altitude: 500,
+                zoom: 17,
             }, 700);
         }
     }, [driverLocation?.latitude, driverLocation?.longitude, driverHeading, isAutoFollow]);

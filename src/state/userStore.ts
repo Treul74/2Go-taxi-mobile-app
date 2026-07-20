@@ -8,7 +8,13 @@ import type {
   UserRole,
 } from '@/types';
 import { fetchCustomerAccount, fetchDriverAccount } from '@/services/accounts';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { create } from 'zustand';
+
+// Last role the user explicitly chose via RoleSwitcher, persisted so a
+// driver's cold start can restore driver mode instead of always defaulting
+// to passenger (see loadAccounts below).
+const ACTIVE_ROLE_KEY = '@2go/active_role';
 
 interface UserState {
   // User data
@@ -97,7 +103,10 @@ export const useUserStore = create<UserState>((set) => ({
   driverOnboarding: initialOnboarding,
 
   // Role actions
-  setRole: (role) => set({ role }),
+  setRole: (role) => {
+    AsyncStorage.setItem(ACTIVE_ROLE_KEY, role).catch(() => {});
+    set({ role });
+  },
 
   toggleRole: () => set((state) => ({
     role: state.role === 'passenger' ? 'driver' : 'passenger',
@@ -112,22 +121,32 @@ export const useUserStore = create<UserState>((set) => ({
   // profile with the customer record (replacing the mock defaults).
   loadAccounts: async () => {
     set({ accountsLoading: true });
-    const [customerAccount, driverAccount] = await Promise.all([
+    const [customerAccount, driverAccount, storedRole] = await Promise.all([
       fetchCustomerAccount(),
       fetchDriverAccount(),
+      AsyncStorage.getItem(ACTIVE_ROLE_KEY),
     ]);
     set((state) => ({
       customerAccount,
       driverAccount,
       accountsLoading: false,
-      // Kick the app out of driver mode when the fetched row is no longer
-      // approved (e.g. admin rejected/suspended since the last switch). Only
-      // when a row exists — a null result can also mean a failed fetch, and
-      // that must not demote a legitimately approved driver mid-session.
       role:
-        state.role === 'driver' && driverAccount && driverAccount.accountStatus !== 'approved'
-          ? 'passenger'
-          : state.role,
+        state.role === 'driver'
+          ? // Kick the app out of driver mode when the fetched row is no
+            // longer approved (e.g. admin rejected/suspended since the last
+            // switch). Only when a row exists — a null result can also mean
+            // a failed fetch, and that must not demote a legitimately
+            // approved driver mid-session.
+            driverAccount && driverAccount.accountStatus !== 'approved'
+            ? 'passenger'
+            : 'driver'
+          : // Not already in driver mode this session (e.g. cold start,
+            // which always initializes to 'passenger') — restore driver mode
+            // from the last explicitly chosen role, but only when the fetch
+            // actually confirms it's still approved.
+            storedRole === 'driver' && driverAccount?.accountStatus === 'approved'
+            ? 'driver'
+            : 'passenger',
       profile: customerAccount
         ? {
             ...state.profile,

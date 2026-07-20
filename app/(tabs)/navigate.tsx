@@ -1,14 +1,24 @@
-import { Map } from '@/components/map';
+import { CompassButton, Map } from '@/components/map';
 import { Button, Card, Input } from '@/components/ui';
 import { LocationSearchModal } from '@/features/passenger/components/LocationSearchModal';
-import { getDirections, reverseGeocode, type DirectionStep } from '@/lib/google/mapsApi';
+import { MapPickerModal } from '@/features/passenger/components/MapPickerModal';
+import { useTurnPreview } from '@/hooks/useTurnPreview';
+import { calculateDistanceMeters, formatManeuverDistance } from '@/lib/distance';
+import { getDirections, type DirectionStep } from '@/lib/google/mapsApi';
+import { getManeuverIconName } from '@/lib/maneuverIcon';
+import { calculateBearing } from '@/lib/routeSnapping';
 import { useDriverStore } from '@/state';
 import type { Location } from '@/types';
 import { Ionicons } from '@expo/vector-icons';
 import * as ExpoLocation from 'expo-location';
-import React, { useEffect, useRef, useState } from 'react';
-import { Keyboard, Pressable, ScrollView, Text, View } from 'react-native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Animated, Keyboard, Pressable, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+
+/** Heading-up navigation camera tilt/zoom, matched to app/(driver)/navigation.tsx. */
+const NAV_CAMERA_PITCH = 45;
+const NAV_CAMERA_ALTITUDE = 500;
+const NAV_CAMERA_ZOOM = 17;
 
 /**
  * Standalone Driver Navigation Screen
@@ -37,9 +47,9 @@ export default function DriverNavigateScreen() {
     const [activeStepIndex, setActiveStepIndex] = useState(0);
     const [routeDistance, setRouteDistance] = useState<string | null>(null);
     const [routeEta, setRouteEta] = useState<string | null>(null);
+    const [distanceToManeuverMeters, setDistanceToManeuverMeters] = useState<number | null>(null);
 
     const [mapSelectionTarget, setMapSelectionTarget] = useState<'start' | 'destination' | null>(null);
-    const [isReverseGeocoding, setIsReverseGeocoding] = useState(false);
 
     const [driverLocation, setDriverLocation] = useState<{ latitude: number; longitude: number } | null>(currentLocation);
     const [driverHeading, setDriverHeading] = useState<number>(0);
@@ -69,29 +79,47 @@ export default function DriverNavigateScreen() {
 
                 subscription = await ExpoLocation.watchPositionAsync(
                     {
-                        accuracy: ExpoLocation.Accuracy.High,
+                        accuracy: ExpoLocation.Accuracy.BestForNavigation,
                         distanceInterval: 1,
                         timeInterval: 1000,
                     },
                     (location) => {
                         const coords = location.coords;
                         setDriverLocation(coords);
+                        // Heading falls back to 0 (handled by the state's initial value)
+                        // whenever GPS can't derive one, e.g. indoors — never crashes.
                         if (coords.heading !== null) setDriverHeading(coords.heading);
                         if (coords.speed !== null) {
                             // Convert m/s to km/h
                             setCurrentSpeed(Math.max(0, Math.round(coords.speed * 3.6)));
+                        } else {
+                            setCurrentSpeed(0);
                         }
 
-                        // Auto-follow logic
+                        // Heading-up camera: rotates so the direction of travel always
+                        // faces up on screen, like Waze/Google Maps navigation.
                         if (isNavigating && isAutoFollow && mapRef.current?.animateCamera) {
+                            // GPS heading is unreliable (0 or null) while stationary or at
+                            // low speed — fall back to the bearing toward the upcoming
+                            // maneuver instead of defaulting to 0 (which would snap the
+                            // map to face north).
+                            let cameraHeading = coords.heading;
+                            if (cameraHeading === null || cameraHeading < 1) {
+                                const nextStepEnd = navigationSteps[activeStepIndex]?.endLocation;
+                                cameraHeading = nextStepEnd
+                                    ? calculateBearing(coords, nextStepEnd)
+                                    : 0;
+                            }
+
                             mapRef.current.animateCamera({
                                 center: {
                                     latitude: coords.latitude,
                                     longitude: coords.longitude,
                                 },
-                                zoom: 17.5,
-                                heading: coords.heading || 0,
-                                pitch: 0,
+                                heading: cameraHeading,
+                                pitch: NAV_CAMERA_PITCH,
+                                altitude: NAV_CAMERA_ALTITUDE,
+                                zoom: NAV_CAMERA_ZOOM,
                             }, 700);
                         }
                     }
@@ -143,30 +171,27 @@ export default function DriverNavigateScreen() {
         }
     };
 
-    // TBT Advance Logic
+    // TBT Advance Logic — also tracks live distance to the upcoming maneuver
+    // for the turn preview pulse/color escalation.
     useEffect(() => {
-        if (!isNavigating || !driverLocation || navigationSteps.length === 0) return;
+        if (!isNavigating || !driverLocation || navigationSteps.length === 0) {
+            setDistanceToManeuverMeters(null);
+            return;
+        }
         const step = navigationSteps[activeStepIndex];
-        if (!step) return;
+        if (!step) {
+            setDistanceToManeuverMeters(null);
+            return;
+        }
 
-        // Calculate distance to end of current step
-        const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
-            const R = 6371000;
-            const dLat = ((lat2 - lat1) * Math.PI) / 180;
-            const dLon = ((lon2 - lon1) * Math.PI) / 180;
-            const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-                Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) *
-                Math.sin(dLon / 2) * Math.sin(dLon / 2);
-            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-            return R * c;
-        };
-
-        const dist = calculateDistance(
+        const dist = calculateDistanceMeters(
             driverLocation.latitude,
             driverLocation.longitude,
             step.endLocation.latitude,
             step.endLocation.longitude
         );
+
+        setDistanceToManeuverMeters(dist);
 
         if (dist < 30 && activeStepIndex < navigationSteps.length - 1) {
             setActiveStepIndex(prev => prev + 1);
@@ -191,6 +216,10 @@ export default function DriverNavigateScreen() {
             setIsAutoFollow(false);
             setLastInteraction(Date.now());
         }
+    };
+
+    const handleCompassPress = () => {
+        mapRef.current?.animateCamera?.({ heading: 0 }, 700);
     };
 
     const handleClear = () => {
@@ -225,6 +254,24 @@ export default function DriverNavigateScreen() {
             setIsAutoFollow(true);
             setMapSelectionTarget(null);
             Keyboard.dismiss();
+
+            // The first GPS fix often has a stale/zero heading (device hasn't
+            // moved yet), so derive an initial bearing from the route polyline
+            // itself to rotate the map to face the direction of travel right away.
+            if (routeCoordinates.length >= 2 && mapRef.current?.animateCamera) {
+                const initialHeading = calculateBearing(routeCoordinates[0], routeCoordinates[1]);
+                const center = driverLocation || startLocation;
+                mapRef.current.animateCamera({
+                    center: {
+                        latitude: center.latitude,
+                        longitude: center.longitude,
+                    },
+                    heading: initialHeading,
+                    pitch: NAV_CAMERA_PITCH,
+                    altitude: NAV_CAMERA_ALTITUDE,
+                    zoom: NAV_CAMERA_ZOOM,
+                }, 700);
+            }
         }
     };
 
@@ -244,29 +291,27 @@ export default function DriverNavigateScreen() {
         if (showMidStop) setMidLocation(null);
     };
 
-    const handleMapPress = async (location: Location) => {
-        if (!mapSelectionTarget) return;
-
-        setIsReverseGeocoding(true);
-        try {
-            const address = await reverseGeocode(location.latitude, location.longitude);
-            const fullLocation = { ...location, address: address || 'Selected Location' };
-
-            if (mapSelectionTarget === 'start') {
-                setStartLocation(fullLocation);
-            } else {
-                setDestinationLocation(fullLocation);
-            }
-            setMapSelectionTarget(null);
-            Keyboard.dismiss();
-        } catch (error) {
-            console.error('Reverse geocoding error:', error);
-        } finally {
-            setIsReverseGeocoding(false);
+    // Same MapPickerModal the passenger flow uses (drag-to-center-pin with
+    // road snapping) — writes into this screen's own local start/destination
+    // state, never the passenger-side rideStore.
+    const handleMapPickerConfirm = useCallback((location: Location) => {
+        if (mapSelectionTarget === 'start') {
+            setStartLocation(location);
+        } else if (mapSelectionTarget === 'destination') {
+            setDestinationLocation(location);
         }
-    };
+        setMapSelectionTarget(null);
+        Keyboard.dismiss();
+    }, [mapSelectionTarget]);
+
+    const handleMapPickerClose = useCallback(() => {
+        setMapSelectionTarget(null);
+    }, []);
 
     const stripHtml = (value: string) => value.replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim();
+
+    const { pulseScale: turnPulseScale, color: turnDistanceColorValue } = useTurnPreview(distanceToManeuverMeters);
+    const nextManeuverIcon = getManeuverIconName(navigationSteps[activeStepIndex]?.maneuver);
 
     return (
         <View className="flex-1 bg-background">
@@ -275,6 +320,9 @@ export default function DriverNavigateScreen() {
                     ref={mapRef}
                     driverLocation={driverLocation || undefined}
                     driverHeading={driverHeading}
+                    navigationArrowMode={isNavigating}
+                    hidePickupPin={isNavigating}
+                    autoFollowDriver={!isNavigating}
                     pickup={startLocation || undefined}
                     destination={destinationLocation || undefined}
                     showRoute={routeCoordinates.length > 0}
@@ -282,7 +330,6 @@ export default function DriverNavigateScreen() {
                     routeSteps={navigationSteps}
                     onPanDrag={handleMapAction}
                     onRegionChangeComplete={handleMapAction}
-                    onMapPress={handleMapPress}
                     eta={isNavigating ? undefined : routeEta || undefined}
                 />
             </View>
@@ -411,19 +458,32 @@ export default function DriverNavigateScreen() {
                         {/* Top TBT Bar */}
                         <View className="px-5 pt-2" pointerEvents="auto">
                             <View className="bg-white/95 rounded-2xl px-4 py-3 shadow-card border border-white/20 flex-row items-center justify-between">
-                                <View className="flex-1 pr-3">
-                                    <Text className="text-secondary text-[10px] mb-1 uppercase">Next Turn</Text>
-                                    <Text className="text-primary font-bold text-lg" numberOfLines={2}>
-                                        {navigationSteps[activeStepIndex] ? stripHtml(navigationSteps[activeStepIndex].instruction) : 'Follow route'}
-                                    </Text>
+                                <View className="flex-row items-center flex-1 pr-3">
+                                    <Animated.View
+                                        className="w-9 h-9 rounded-full bg-primary/10 items-center justify-center mr-3"
+                                        style={{ transform: [{ scale: turnPulseScale }] }}
+                                    >
+                                        <Ionicons name={nextManeuverIcon} size={20} color="#26344F" />
+                                    </Animated.View>
+                                    <View className="flex-1">
+                                        <Text className="text-secondary text-[10px] mb-1 uppercase">Next Turn</Text>
+                                        <Text className="text-primary font-bold text-lg" numberOfLines={2}>
+                                            {navigationSteps[activeStepIndex] ? stripHtml(navigationSteps[activeStepIndex].instruction) : 'Follow route'}
+                                        </Text>
+                                    </View>
                                 </View>
                                 <View className="items-end">
                                     <Text className="text-secondary text-[10px] mb-1 uppercase">In</Text>
-                                    <Text className="text-primary font-bold text-xl">
-                                        {navigationSteps[activeStepIndex]?.distance?.text || '...'}
+                                    <Text className="font-bold text-xl" style={{ color: turnDistanceColorValue }}>
+                                        {distanceToManeuverMeters != null ? formatManeuverDistance(distanceToManeuverMeters) : '...'}
                                     </Text>
                                 </View>
                             </View>
+                        </View>
+
+                        {/* Compass */}
+                        <View className="absolute top-24 right-5" pointerEvents="auto">
+                            <CompassButton heading={driverHeading} onPress={handleCompassPress} />
                         </View>
 
                         {/* Bottom Info Bar */}
@@ -507,6 +567,20 @@ export default function DriverNavigateScreen() {
                         setMapSelectionTarget('destination'); // Reusing destination target for map selection
                     }}
                     onClose={() => setShowMidSearchModal(false)}
+                />
+
+                {/* Map Picker Modal - same drag-to-select + road-snapping screen the
+                    passenger flow uses, opened via "Choose on Map" above */}
+                <MapPickerModal
+                    visible={mapSelectionTarget !== null}
+                    initialLocation={
+                        mapSelectionTarget === 'start'
+                            ? (startLocation || (driverLocation ? { ...driverLocation, address: 'Current Location' } as Location : undefined))
+                            : (destinationLocation || undefined)
+                    }
+                    title={mapSelectionTarget === 'start' ? 'Select Start Location' : 'Select Destination'}
+                    onConfirm={handleMapPickerConfirm}
+                    onClose={handleMapPickerClose}
                 />
 
             </SafeAreaView>

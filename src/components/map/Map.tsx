@@ -75,6 +75,9 @@ export interface MapProps {
   /** Only 'offline' changes rendering (dims the marker); defaults to 'comfort' */
   driverVehicleVariant?: VehicleMarkerVariant;
 
+  /** Render the driver marker as a heading-aware directional arrow instead of the top-down car icon (used during turn-by-turn navigation) */
+  navigationArrowMode?: boolean;
+
   /** Render the pickup marker as the pulsing UserLocationMarker dot instead of the default pin (used by the customer's live tracking screen) */
   showPickupAsUserLocation?: boolean;
 
@@ -104,6 +107,9 @@ export interface MapProps {
 
   /** Show zoom control buttons on the map */
   showZoomControls?: boolean;
+
+  /** Hide the green pickup pin (e.g. during active turn-by-turn navigation) */
+  hidePickupPin?: boolean;
 }
 
 

@@ -3,6 +3,11 @@ export type { AnimatedUserLocationProps } from './AnimatedUserLocation';
 export { AnimatedVehicleMarker } from './AnimatedVehicleMarker';
 export type { AnimatedVehicleMarkerProps } from './AnimatedVehicleMarker';
 export {
+  DEFAULT_NAVIGATION_ARROW_SIZE,
+  NavigationArrowMarker,
+} from './NavigationArrowMarker';
+export type { NavigationArrowMarkerProps } from './NavigationArrowMarker';
+export {
   CarMarker,
   DEFAULT_VEHICLE_MARKER_SIZE,
   VEHICLE_MARKER_COLORS,

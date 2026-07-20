@@ -263,7 +263,33 @@ Not yet split by vehicle type — known gap to address.
   — work through them one at a time
 - Every audit report (codebase audits, style/blast-radius audits, etc.) is
   saved as a `.md` file in the `audit_export/` folder — never left only in
-  chat output
+  chat output (see Audit Reports below for the full rule)
+
+---
+
+## Audit Reports
+
+Every time an audit is run, the agent must automatically save
+the full report as a markdown file in the audit_export/ folder
+at the project root.
+
+Rules:
+- File name format: audit_YYYY-MM-DD_HH-MM_[description].md
+  Example: audit_2026-07-20_14-30_database-tables.md
+- The file must contain the full audit report — every finding,
+  every file path, every code snippet, every table
+- Save the file immediately after the audit completes, before
+  reporting back in the chat
+- Never overwrite an existing audit file — always use a new
+  timestamped filename
+- The audit_export/ folder already exists at the project root
+  do not create it or modify it in any other way
+- After saving, confirm the file path in the response:
+  "Audit saved to audit_export/[filename].md"
+
+This applies to every audit prompt regardless of scope —
+database audits, code audits, config audits, security audits,
+performance audits, and any other read-only investigation.
 
 ---
 
