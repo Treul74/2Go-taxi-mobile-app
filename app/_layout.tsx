@@ -7,7 +7,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import * as SystemUI from 'expo-system-ui';
 import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Platform, View } from 'react-native';
+import { ActivityIndicator, Alert, Platform, Text, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import '../global.css';
@@ -31,7 +31,8 @@ export default function RootLayout() {
   // or is still active. 'idle'/'checking' hold the app on the spinner so a
   // deleted or suspended account can never flash the protected stack before
   // being signed back out.
-  const [sessionCheck, setSessionCheck] = useState<'idle' | 'checking' | 'ok'>('idle');
+  const [sessionCheck, setSessionCheck] = useState<'idle' | 'checking' | 'ok' | 'retry'>('idle');
+  const [retryingAccountLoad, setRetryingAccountLoad] = useState(false);
 
   useEffect(() => {
     if (Platform.OS === 'android') {
@@ -46,11 +47,13 @@ export default function RootLayout() {
   useEffect(() => {
     if (!hydrated || !authed) {
       setSessionCheck('idle');
+      setRetryingAccountLoad(false);
       return;
     }
 
     let cancelled = false;
     setSessionCheck('checking');
+    setRetryingAccountLoad(false);
 
     (async () => {
       // Also re-fetches the drivers row and demotes role 'driver' -> 'passenger'
@@ -62,7 +65,13 @@ export default function RootLayout() {
         // or AsyncStorage reads failed. Transition sessionCheck out of
         // 'checking' so startup doesn't remain on the loading screen.
         if (err instanceof AccountsLoadError) {
-          if (!cancelled) setSessionCheck('ok');
+          if (!cancelled) {
+            if (err.kind === 'customer-account') {
+              setSessionCheck('retry');
+            } else {
+              setSessionCheck('ok');
+            }
+          }
           return;
         }
         // Unknown errors fall through so they can be observed during
@@ -101,6 +110,54 @@ export default function RootLayout() {
       cancelled = true;
     };
   }, [hydrated, authed, setAuthed]);
+
+  useEffect(() => {
+    if (sessionCheck !== 'retry' || !hydrated || !authed) return;
+
+    let cancelled = false;
+    setRetryingAccountLoad(true);
+
+    (async () => {
+      try {
+        await useUserStore.getState().loadAccounts();
+      } catch (err) {
+        if (!cancelled) {
+          if (err instanceof AccountsLoadError && err.kind === 'customer-account') {
+            setSessionCheck('retry');
+          } else {
+            setSessionCheck('ok');
+          }
+        }
+        return;
+      }
+
+      if (cancelled) return;
+
+      const { customerAccount } = useUserStore.getState();
+      if (!customerAccount) {
+        await insforge.auth.signOut();
+        insforge.setAccessToken(null);
+        await setAuthed(false);
+        return;
+      }
+
+      if (customerAccount.accountStatus === 'suspended' || customerAccount.accountStatus === 'deleted') {
+        await insforge.auth.signOut();
+        insforge.setAccessToken(null);
+        await setAuthed(false);
+        return;
+      }
+
+      if (!cancelled) {
+        setRetryingAccountLoad(false);
+        setSessionCheck('ok');
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [hydrated, authed, sessionCheck, setAuthed]);
 
   const appReady = hydrated && (!authed || sessionCheck === 'ok');
 
@@ -147,7 +204,16 @@ export default function RootLayout() {
         <StatusBar style="dark" />
         {!appReady ? (
           <View className="flex-1 items-center justify-center bg-background">
-            <ActivityIndicator size="large" color="#FE5035" />
+            {sessionCheck === 'retry' || retryingAccountLoad ? (
+              <View className="items-center px-6">
+                <ActivityIndicator size="large" color="#FE5035" />
+                <Text className="text-primary mt-4 text-center">
+                  We’re reconnecting your account details. Please wait a moment.
+                </Text>
+              </View>
+            ) : (
+              <ActivityIndicator size="large" color="#FE5035" />
+            )}
           </View>
         ) : (
           <Stack

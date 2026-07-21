@@ -14,6 +14,8 @@ interface InputProps extends TextInputProps {
   label?: string;
   error?: string;
   leftIcon?: IconName;
+  /** Overrides the left icon's default gray/focused color (e.g. live-location blue) */
+  leftIconColor?: string;
   rightIcon?: IconName;
   onRightIconPress?: () => void;
   onPress?: () => void;
@@ -30,6 +32,7 @@ export function Input({
   label,
   error,
   leftIcon,
+  leftIconColor,
   rightIcon,
   onRightIconPress,
   onPress,
@@ -86,7 +89,7 @@ export function Input({
         <Ionicons
           name={leftIcon}
           size={20}
-          color={isFocused ? '#FE5035' : '#7B8387'}
+          color={leftIconColor ?? (isFocused ? '#FE5035' : '#7B8387')}
           style={{ marginRight: 12 }}
         />
       )}

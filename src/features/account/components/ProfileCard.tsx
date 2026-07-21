@@ -1,8 +1,8 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, Pressable, Image } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
 import { Card, SkeletonBox } from '@/components/ui';
 import type { UserProfile } from '@/types';
+import { Ionicons } from '@expo/vector-icons';
+import React, { useEffect, useState } from 'react';
+import { Image, Pressable, Text, View } from 'react-native';
 
 interface ProfileCardProps {
   profile: UserProfile;
@@ -33,7 +33,7 @@ export function ProfileCard({ profile, onEditPress, loading = false }: ProfileCa
               {profile.avatar && !avatarLoadFailed ? (
                 <Image
                   source={{ uri: profile.avatar }}
-                  style={{ width: 80, height: 80, borderRadius: 40 }}
+                  className="w-20 h-20 rounded-full"
                   onError={() => setAvatarLoadFailed(true)}
                 />
               ) : profile.avatar ? (

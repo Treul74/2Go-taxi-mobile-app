@@ -110,6 +110,9 @@ export interface MapProps {
 
   /** Hide the green pickup pin (e.g. during active turn-by-turn navigation) */
   hidePickupPin?: boolean;
+
+  /** The pickup is the customer's live GPS position — never render the green pickup pin (the user-location indicator already marks the spot) */
+  isLiveLocation?: boolean;
 }
 
 

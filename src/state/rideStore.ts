@@ -365,11 +365,13 @@ export const useRideStore = create<RideState>((set, get) => ({
       case 'accepted': {
         const existing = state.activeTrip;
         const arrivedStatus = update.driver_arrived_at ? 'waiting' : 'driver_assigned';
+        const acceptedAt = update.accepted_at ? new Date(update.accepted_at) : existing?.acceptedAt;
         const trip: ActiveTrip = existing
           ? {
               ...existing,
               status: update.driver_arrived_at ? 'waiting' : existing.status,
               estimatedArrival: update.estimated_arrival_minutes ?? existing.estimatedArrival,
+              acceptedAt: acceptedAt ?? existing.acceptedAt,
               ...mergeDriverTelemetry(update, existing),
             }
           : {
@@ -391,7 +393,7 @@ export const useRideStore = create<RideState>((set, get) => ({
               fare: state.orderFare ?? 0,
               // Start of the cancellation window — this branch only runs once,
               // the first time the order is seen as accepted.
-              acceptedAt: new Date(),
+              acceptedAt: acceptedAt ?? new Date(),
               ...mergeDriverTelemetry(update),
             };
 

@@ -20,8 +20,50 @@ export function useCurrentLocation() {
 
   useEffect(() => {
     let isMounted = true;
+    let subscription: Location.LocationSubscription | null = null;
 
-    async function getCurrentLocation() {
+    // Applies a GPS fix: reverse geocodes it, indexes it, and updates state.
+    // Called for every update the position watcher emits, not just the first.
+    async function applyPosition(position: Location.LocationObject) {
+      // 4. Reverse geocode to get address
+      let formattedAddress = 'Current Location';
+      let provinceName = null;
+
+      try {
+        const [address] = await Location.reverseGeocodeAsync({
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+        });
+
+        if (address) {
+          formattedAddress = `${address.street || ''}, ${address.city || ''}, ${address.region || ''}`.trim();
+          provinceName = address.region || address.subregion || null;
+        }
+      } catch (e) {
+        // Silent failure for geocoding
+      }
+
+      if (!isMounted) return;
+
+      setProvince(provinceName);
+
+      // Calculate H3 hexagon index
+      const hex9 = getHex9(
+        position.coords.latitude,
+        position.coords.longitude
+      );
+
+      setLocation({
+        latitude: position.coords.latitude,
+        longitude: position.coords.longitude,
+        address: formattedAddress || 'Current Location',
+        hex9,
+      });
+
+      setLoading(false);
+    }
+
+    async function startWatchingLocation() {
       try {
         // 1. Check if services are enabled
         const enabled = await Location.hasServicesEnabledAsync().catch(() => false);
@@ -45,60 +87,34 @@ export function useCurrentLocation() {
           return;
         }
 
-        // 3. Get current position with tiered accuracy
-        let position = null;
+        // 3. Watch position instead of a one-time read, so a "live location"
+        // pickup keeps tracking the customer: a fresh fix every ~60s or after
+        // moving ~50m, whichever comes first.
         try {
-          position = await Location.getCurrentPositionAsync({
-            accuracy: Location.Accuracy.Balanced,
-          });
-        } catch (e) {
-          // Fallback to last known if accuracy is unsatisfied
-          position = await Location.getLastKnownPositionAsync();
-        }
+          subscription = await Location.watchPositionAsync(
+            {
+              accuracy: Location.Accuracy.Balanced,
+              timeInterval: 60000,
+              distanceInterval: 50,
+            },
+            applyPosition
+          );
 
-        if (!isMounted || !position) {
-          if (!isMounted) return;
-          setError('Could not determine current location');
-          setLoading(false);
-          return;
-        }
-
-        // 4. Reverse geocode to get address
-        let formattedAddress = 'Current Location';
-        let provinceName = null;
-
-        try {
-          const [address] = await Location.reverseGeocodeAsync({
-            latitude: position.coords.latitude,
-            longitude: position.coords.longitude,
-          });
-
-          if (address) {
-            formattedAddress = `${address.street || ''}, ${address.city || ''}, ${address.region || ''}`.trim();
-            provinceName = address.region || address.subregion || null;
+          if (!isMounted) {
+            subscription.remove();
+            subscription = null;
           }
         } catch (e) {
-          // Silent failure for geocoding
+          // Fallback to last known fix if the watcher can't start
+          const position = await Location.getLastKnownPositionAsync();
+          if (!isMounted) return;
+          if (position) {
+            applyPosition(position);
+          } else {
+            setError('Could not determine current location');
+            setLoading(false);
+          }
         }
-
-        if (!isMounted) return;
-
-        setProvince(provinceName);
-
-        // Calculate H3 hexagon index
-        const hex9 = getHex9(
-          position.coords.latitude,
-          position.coords.longitude
-        );
-
-        setLocation({
-          latitude: position.coords.latitude,
-          longitude: position.coords.longitude,
-          address: formattedAddress || 'Current Location',
-          hex9,
-        });
-
-        setLoading(false);
       } catch (err: any) {
         if (!isMounted) return;
 
@@ -114,10 +130,11 @@ export function useCurrentLocation() {
       }
     }
 
-    getCurrentLocation();
+    startWatchingLocation();
 
     return () => {
       isMounted = false;
+      subscription?.remove();
     };
   }, []);
 

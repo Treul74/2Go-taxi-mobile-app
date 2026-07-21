@@ -70,6 +70,7 @@ export const Map = React.forwardRef<any, MapProps>(({
   etaPosition,
   showZoomControls = false,
   hidePickupPin = false,
+  isLiveLocation = false,
 }: MapProps, ref) => {
   const mapRef = useRef<any>(null);
   const [isReady, setIsReady] = useState(false);
@@ -376,7 +377,7 @@ export const Map = React.forwardRef<any, MapProps>(({
               <UserLocationMarker />
             </Marker>
           ) : (
-            !hidePickupPin && (
+            !hidePickupPin && !isLiveLocation && (
               <Marker
                 coordinate={{
                   latitude: pickup.latitude,

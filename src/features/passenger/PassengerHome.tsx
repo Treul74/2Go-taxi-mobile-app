@@ -1,5 +1,5 @@
-import { Map, ProvinceLabel } from '@/components/map';
 import type { MapVehicle, VehicleMarkerVariant } from '@/components/map';
+import { Map, ProvinceLabel } from '@/components/map';
 import { getNearbyHexes } from '@/core/spatialEngine';
 
 import { BackButton, IconButton } from '@/components/ui';
@@ -344,6 +344,7 @@ export function PassengerHome() {
           showUserMarker={showUserMarker}
           showSearchPulse={status === 'matching' && matchingPhase === 'searching'}
           hidePickupPin={pickupMatchesUserLocation}
+          isLiveLocation={!isPickupManual && showUserMarker}
           vehicles={showNearbyVehicles ? nearbyVehicles : undefined}
           mapType={mapType}
           onPanDrag={handleMapDragStart}
@@ -384,13 +385,6 @@ export function PassengerHome() {
             <Pressable
               onPress={() => setShowH3Grid(!showH3Grid)}
               className={`w-12 h-12 rounded-full items-center justify-center shadow-md ${showH3Grid ? 'bg-red-500' : 'bg-white'}`}
-              style={{
-                shadowColor: '#000',
-                shadowOffset: { width: 0, height: 2 },
-                shadowOpacity: 0.2,
-                shadowRadius: 3,
-                elevation: 5
-              }}
             >
               <Ionicons
                 name={showH3Grid ? 'grid' : 'grid-outline'}

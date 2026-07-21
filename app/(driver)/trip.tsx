@@ -43,7 +43,7 @@ export default function DriverTripScreen() {
     // consecutive location fixes below), used only for the final fare
     // calculation at trip completion — never displayed live.
     const distanceTraveledRef = useRef(0);
-    const lastGpsPointRef = useRef<{ latitude: number; longitude: number } | null>(null);
+    const lastGpsPointRef = useRef<{ latitude: number; longitude: number; accuracy: number | null; timestamp: number } | null>(null);
 
     useDriverTelemetryPing(currentTrip?.id, driverLocation, driverHeading);
 
@@ -56,18 +56,47 @@ export default function DriverTripScreen() {
 
     // Accumulates the real GPS distance travelled between consecutive fixes —
     // the running total this produces is the actual distance driven this
-    // trip, as opposed to the remaining distance to the destination.
-    const trackGpsPoint = (coords: { latitude: number; longitude: number }) => {
-        const prev = lastGpsPointRef.current;
-        if (prev) {
-            distanceTraveledRef.current += calculateDistanceKm(
-                prev.latitude,
-                prev.longitude,
-                coords.latitude,
-                coords.longitude
-            );
+    // trip, as opposed to the remaining distance to the destination. Only
+    // valid movement is added, and noisy or implausible fixes are ignored.
+    const trackGpsPoint = (location: Location.LocationObject) => {
+        const { latitude, longitude, accuracy } = location.coords;
+        const currentTimestamp = location.timestamp;
+
+        if (accuracy == null || !Number.isFinite(accuracy) || accuracy > 50) {
+            return false;
         }
-        lastGpsPointRef.current = coords;
+
+        const prev = lastGpsPointRef.current;
+        if (!prev) {
+            lastGpsPointRef.current = { latitude, longitude, accuracy, timestamp: currentTimestamp };
+            return true;
+        }
+
+        const segmentDistanceKm = calculateDistanceKm(prev.latitude, prev.longitude, latitude, longitude);
+        const segmentDistanceMeters = segmentDistanceKm * 1000;
+        const timeDeltaMs = currentTimestamp - prev.timestamp;
+
+        if (segmentDistanceMeters < 8 || timeDeltaMs <= 0) {
+            return false;
+        }
+
+        const allowedSpeedKmh = 120;
+        const allowedDistanceMeters = Math.max(8, (timeDeltaMs / 1000 / 60 / 60) * allowedSpeedKmh * 1000);
+        const uncertaintyMeters = (prev.accuracy ?? 0) + (accuracy ?? 0);
+        const minimumMoveMeters = Math.max(8, uncertaintyMeters * 2);
+
+        if (segmentDistanceMeters < minimumMoveMeters) {
+            return false;
+        }
+
+        const segmentSpeedKmh = (segmentDistanceKm / (timeDeltaMs / 1000 / 60 / 60));
+        if (segmentDistanceMeters > allowedDistanceMeters || segmentSpeedKmh > allowedSpeedKmh) {
+            return false;
+        }
+
+        distanceTraveledRef.current += segmentDistanceKm;
+        lastGpsPointRef.current = { latitude, longitude, accuracy, timestamp: currentTimestamp };
+        return true;
     };
 
     // Track driver location (high accuracy, 1–2s interval)
@@ -86,7 +115,7 @@ export default function DriverTripScreen() {
                 if (initial) {
                     setDriverLocation(initial.coords);
                     updateLocation(initial.coords.latitude, initial.coords.longitude);
-                    trackGpsPoint(initial.coords);
+                    trackGpsPoint(initial);
                     if (initial.coords.heading !== null) {
                         setDriverHeading(initial.coords.heading);
                     }
@@ -101,7 +130,7 @@ export default function DriverTripScreen() {
                     (location) => {
                         setDriverLocation(location.coords);
                         updateLocation(location.coords.latitude, location.coords.longitude);
-                        trackGpsPoint(location.coords);
+                        trackGpsPoint(location);
                         if (location.coords.heading !== null) {
                             setDriverHeading(location.coords.heading);
                         }

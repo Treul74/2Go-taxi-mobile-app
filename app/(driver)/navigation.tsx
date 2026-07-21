@@ -116,12 +116,6 @@ export default function DriverNavigationScreen() {
         }
     }, [currentTrip]);
 
-
-
-    if (!currentTrip) {
-        return null;
-    }
-
     const calculateRoute = async () => {
         if (!driverLocation || !currentTrip) return;
 
@@ -197,13 +191,13 @@ export default function DriverNavigationScreen() {
         });
     };
 
-    const distance = driverLocation
+    const distance = driverLocation && currentTrip
         ? calculateDistanceKm(driverLocation.latitude, driverLocation.longitude, currentTrip.pickup.latitude, currentTrip.pickup.longitude).toFixed(1)
         : '...';
     const eta = Math.max(1, Math.ceil(parseFloat(distance) * 2)); // Rough ETA: 2 min per km
 
     const isNearPickup = useMemo(() => {
-        if (!driverLocation) return false;
+        if (!driverLocation || !currentTrip) return false;
         const meters = calculateDistanceMeters(
             driverLocation.latitude,
             driverLocation.longitude,
@@ -211,7 +205,7 @@ export default function DriverNavigationScreen() {
             currentTrip.pickup.longitude
         );
         return meters < 50;
-    }, [driverLocation?.latitude, driverLocation?.longitude, currentTrip.pickup.latitude, currentTrip.pickup.longitude]);
+    }, [driverLocation?.latitude, driverLocation?.longitude, currentTrip?.pickup.latitude, currentTrip?.pickup.longitude]);
 
     const currentStep = routeSteps[activeStepIndex];
     const nextTurnDistance = distanceToManeuverMeters != null ? formatManeuverDistance(distanceToManeuverMeters) : '...';
@@ -300,6 +294,14 @@ export default function DriverNavigationScreen() {
 
         return () => clearInterval(interval);
     }, [waitingStartTime]);
+
+    // This guard must stay below every hook: returning above any hook throws
+    // "Rendered fewer hooks than expected" when currentTrip goes null while
+    // this screen is still mounted under trip/trip-summary (e.g. on Done).
+    // The redirect effect above navigates away; this just blanks the frame.
+    if (!currentTrip) {
+        return null;
+    }
 
     const formatTime = (seconds: number) => {
         const mins = Math.floor(seconds / 60);
