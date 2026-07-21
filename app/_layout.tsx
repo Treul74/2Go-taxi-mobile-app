@@ -1,7 +1,7 @@
-import '@/lib/polyfills';
 import { insforge } from '@/lib/insforge';
+import '@/lib/polyfills';
 import { useAuthStore } from '@/state/authStore';
-import { useUserStore } from '@/state/userStore';
+import { AccountsLoadError, useUserStore } from '@/state/userStore';
 import { router, Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
@@ -55,7 +55,23 @@ export default function RootLayout() {
     (async () => {
       // Also re-fetches the drivers row and demotes role 'driver' -> 'passenger'
       // when it's no longer 'approved' (see userStore.loadAccounts).
-      await useUserStore.getState().loadAccounts();
+      try {
+        await useUserStore.getState().loadAccounts();
+      } catch (err) {
+        // A typed AccountsLoadError indicates one of the underlying fetches
+        // or AsyncStorage reads failed. Transition sessionCheck out of
+        // 'checking' so startup doesn't remain on the loading screen.
+        if (err instanceof AccountsLoadError) {
+          if (!cancelled) setSessionCheck('ok');
+          return;
+        }
+        // Unknown errors fall through so they can be observed during
+        // development — but still ensure the startup doesn't hang.
+        console.error(err);
+        if (!cancelled) setSessionCheck('ok');
+        return;
+      }
+
       if (cancelled) return;
 
       const { customerAccount } = useUserStore.getState();

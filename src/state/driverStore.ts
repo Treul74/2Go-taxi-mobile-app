@@ -202,23 +202,29 @@ export const useDriverStore = create<DriverState>((set, get) => ({
   // confirm-before-UI-change contract as goOnline, then tears down the
   // pending-orders poll and expiry timer.
   goOffline: async (driverId) => {
-    const errorMessage = await setDriverStatus(driverId, 'offline');
-    if (errorMessage) {
-      console.error('Failed to go offline:', errorMessage);
+    try {
+      const errorMessage = await setDriverStatus(driverId, 'offline');
+      if (errorMessage) {
+        console.error('Failed to go offline:', errorMessage);
+        return false;
+      }
+
+      if (pollInterval) {
+        clearInterval(pollInterval);
+        pollInterval = null;
+      }
+      if (expiryInterval) {
+        clearInterval(expiryInterval);
+        expiryInterval = null;
+      }
+      set({ isOnline: false, vehicleType: null, incomingRequests: [], isRequestsLoading: false });
+
+      return true;
+    } catch (error) {
+      console.error('Failed to go offline:', error)
+      // do not rethrow — caller should not crash
       return false;
     }
-
-    if (pollInterval) {
-      clearInterval(pollInterval);
-      pollInterval = null;
-    }
-    if (expiryInterval) {
-      clearInterval(expiryInterval);
-      expiryInterval = null;
-    }
-    set({ isOnline: false, vehicleType: null, incomingRequests: [], isRequestsLoading: false });
-
-    return true;
   },
 
   // Update driver location and calculate hex9. Also keeps incoming requests'
@@ -405,6 +411,7 @@ export const useDriverStore = create<DriverState>((set, get) => ({
         passengerName: receiptData.passengerName,
         distance: receiptData.distance,
         duration: receiptData.duration,
+        waitingDuration: receiptData.waitingDuration ?? 0,
         fareAmount: totals.fareAmount,
         serviceFeeAmount: totals.serviceFeeAmount,
         netEarnings: totals.netEarnings,

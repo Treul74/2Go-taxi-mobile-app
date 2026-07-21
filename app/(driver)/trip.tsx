@@ -39,6 +39,12 @@ export default function DriverTripScreen() {
     const [lastInteraction, setLastInteraction] = useState(0);
     const mapRef = useRef<any>(null);
 
+    // Actual GPS distance travelled so far this trip (accumulated from
+    // consecutive location fixes below), used only for the final fare
+    // calculation at trip completion — never displayed live.
+    const distanceTraveledRef = useRef(0);
+    const lastGpsPointRef = useRef<{ latitude: number; longitude: number } | null>(null);
+
     useDriverTelemetryPing(currentTrip?.id, driverLocation, driverHeading);
 
     // Start trip when component mounts
@@ -47,6 +53,22 @@ export default function DriverTripScreen() {
             startTrip();
         }
     }, []);
+
+    // Accumulates the real GPS distance travelled between consecutive fixes —
+    // the running total this produces is the actual distance driven this
+    // trip, as opposed to the remaining distance to the destination.
+    const trackGpsPoint = (coords: { latitude: number; longitude: number }) => {
+        const prev = lastGpsPointRef.current;
+        if (prev) {
+            distanceTraveledRef.current += calculateDistanceKm(
+                prev.latitude,
+                prev.longitude,
+                coords.latitude,
+                coords.longitude
+            );
+        }
+        lastGpsPointRef.current = coords;
+    };
 
     // Track driver location (high accuracy, 1–2s interval)
     useEffect(() => {
@@ -64,6 +86,7 @@ export default function DriverTripScreen() {
                 if (initial) {
                     setDriverLocation(initial.coords);
                     updateLocation(initial.coords.latitude, initial.coords.longitude);
+                    trackGpsPoint(initial.coords);
                     if (initial.coords.heading !== null) {
                         setDriverHeading(initial.coords.heading);
                     }
@@ -78,6 +101,7 @@ export default function DriverTripScreen() {
                     (location) => {
                         setDriverLocation(location.coords);
                         updateLocation(location.coords.latitude, location.coords.longitude);
+                        trackGpsPoint(location.coords);
                         if (location.coords.heading !== null) {
                             setDriverHeading(location.coords.heading);
                         }
@@ -176,8 +200,9 @@ export default function DriverTripScreen() {
     }
 
     const handleSliderComplete = async () => {
-        // Prepare final receipt data
-        const distanceKm = parseFloat(distance);
+        // Prepare final receipt data — the actual distance driven this trip,
+        // not the remaining distance to the destination.
+        const distanceKm = distanceTraveledRef.current;
         const durationMin = Math.ceil(elapsedTime / 60);
         const waitingMin = Math.ceil(waitingDuration / 60);
 
@@ -312,7 +337,7 @@ export default function DriverTripScreen() {
                                 <View className="w-px h-12 bg-gray-200" />
                                 <View className="flex-1 items-center">
                                     <Ionicons name="cash-outline" size={24} color="#10B981" />
-                                    <Text className="text-secondary text-xs mt-1">Earnings</Text>
+                                    <Text className="text-secondary text-xs mt-1">Estimated fare</Text>
                                     <Text className="text-success font-bold">K{currentTrip.estimatedFare}</Text>
                                 </View>
                             </View>

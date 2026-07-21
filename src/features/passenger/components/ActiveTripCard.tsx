@@ -1,5 +1,6 @@
 import { Button, Card, IconButton } from '@/components/ui';
 import { formatDisplayAddress } from '@/lib';
+import { CANCELLATION_WINDOW_MS } from '@/state/rideStore';
 import type { ActiveTrip } from '@/types';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
@@ -20,6 +21,21 @@ interface ActiveTripCardProps {
   isMapDragging?: boolean;
 }
 
+// The customer may only cancel while the driver is still on the way —
+// once the trip status moves past this, cancelling is no longer offered.
+const CANCELLABLE_STATUSES: ActiveTrip['status'][] = ['driver_assigned', 'arriving'];
+
+function getRemainingCancelSeconds(acceptedAt: Date): number {
+  const remainingMs = CANCELLATION_WINDOW_MS - (Date.now() - acceptedAt.getTime());
+  return Math.max(0, Math.ceil(remainingMs / 1000));
+}
+
+function formatCancelCountdown(totalSeconds: number): string {
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+}
+
 /**
  * Floating driver card shown during active trip
  * Displays driver info, vehicle details, and communication buttons
@@ -27,6 +43,26 @@ interface ActiveTripCardProps {
 export function ActiveTripCard({ trip, onEndTrip, onCancelTrip, isMapDragging = false }: ActiveTripCardProps) {
   const pulseScale = useSharedValue(1);
   const dragProgress = useSharedValue(0); // 0 when not dragging, 1 when dragging
+
+  const isCancellableStatus = CANCELLABLE_STATUSES.includes(trip.status);
+  const [remainingCancelSeconds, setRemainingCancelSeconds] = React.useState(() =>
+    getRemainingCancelSeconds(trip.acceptedAt)
+  );
+
+  // Ticks the cancellation countdown every second while cancelling is still
+  // possible; stops (and re-syncs) once the trip moves past that stage.
+  React.useEffect(() => {
+    if (!isCancellableStatus) return;
+
+    setRemainingCancelSeconds(getRemainingCancelSeconds(trip.acceptedAt));
+    const interval = setInterval(() => {
+      setRemainingCancelSeconds(getRemainingCancelSeconds(trip.acceptedAt));
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [isCancellableStatus, trip.acceptedAt]);
+
+  const canCancel = isCancellableStatus && remainingCancelSeconds > 0;
 
   React.useEffect(() => {
     pulseScale.value = withRepeat(
@@ -188,14 +224,20 @@ export function ActiveTripCard({ trip, onEndTrip, onCancelTrip, isMapDragging = 
         {/* Action buttons */}
         <View className="flex-row gap-3 mt-4">
           <View className="flex-1">
-            <Button
-              variant="outline"
-              size="sm"
-              onPress={onCancelTrip}
-              leftIcon="close-circle-outline"
-            >
-              Cancel
-            </Button>
+            {canCancel ? (
+              <Button
+                variant="outline"
+                size="sm"
+                onPress={onCancelTrip}
+                leftIcon="close-circle-outline"
+              >
+                {`Cancel ride (${formatCancelCountdown(remainingCancelSeconds)})`}
+              </Button>
+            ) : (
+              <Text className="text-secondary text-sm text-center py-2">
+                Cancellation window closed
+              </Text>
+            )}
           </View>
           <View className="flex-1">
             <Button

@@ -9,14 +9,14 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 /**
  * Post-trip summary shown to the driver after Slide to Complete Trip
- * succeeds. Reads driverStore.lastTripSummary (set by completeTrip()) and
- * clears the trip via finishTrip() when the driver returns home.
+ * succeeds. Reads driverStore.lastTripSummary (set by completeTrip()). Done
+ * only navigates home — the driver stays online, and trip state is left
+ * as-is (no store resets, no offline calls).
  */
 export default function DriverTripSummaryScreen() {
-  const { lastTripSummary, finishTrip } = useDriverStore();
+  const { lastTripSummary } = useDriverStore();
 
   const handleDone = () => {
-    finishTrip();
     router.replace('/(tabs)');
   };
 
@@ -25,7 +25,7 @@ export default function DriverTripSummaryScreen() {
     return null;
   }
 
-  const { passengerName, distance, duration, fareAmount, serviceFeeAmount, netEarnings } = lastTripSummary;
+  const { passengerName, distance, duration, waitingDuration, fareAmount, serviceFeeAmount, netEarnings } = lastTripSummary;
 
   return (
     <SafeAreaView className="flex-1 bg-background items-center justify-center px-6" edges={['top', 'bottom']}>
@@ -42,10 +42,23 @@ export default function DriverTripSummaryScreen() {
           </Text>
 
           <View className="w-full bg-gray-100 rounded-3xl p-4 mb-6">
-            <Text className="text-secondary text-xs mb-3">EARNINGS FOR THIS TRIP</Text>
+            <Text className="text-secondary text-xs mb-3">TRIP BREAKDOWN</Text>
 
             <View className="flex-row justify-between mb-2">
-              <Text className="text-primary text-sm">Fare</Text>
+              <Text className="text-secondary text-sm">Distance</Text>
+              <Text className="text-primary font-medium text-sm">{distance.toFixed(1)} km</Text>
+            </View>
+            <View className="flex-row justify-between mb-2">
+              <Text className="text-secondary text-sm">Travel time</Text>
+              <Text className="text-primary font-medium text-sm">{duration} min</Text>
+            </View>
+            <View className="flex-row justify-between mb-3 pb-3 border-b border-gray-200">
+              <Text className="text-secondary text-sm">Waiting time</Text>
+              <Text className="text-primary font-medium text-sm">{waitingDuration} min</Text>
+            </View>
+
+            <View className="flex-row justify-between mb-2">
+              <Text className="text-primary text-sm">Final fare</Text>
               <Text className="text-primary font-medium text-sm">{formatCurrency(fareAmount)}</Text>
             </View>
             <View className="flex-row justify-between mb-3 pb-3 border-b border-gray-200">

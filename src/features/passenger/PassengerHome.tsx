@@ -1,17 +1,109 @@
 import { Map, ProvinceLabel } from '@/components/map';
+import type { MapVehicle, VehicleMarkerVariant } from '@/components/map';
 import { getNearbyHexes } from '@/core/spatialEngine';
 
 import { BackButton, IconButton } from '@/components/ui';
 import { useSnappedLocation } from '@/hooks/useSnappedLocation';
+import { calculateDistanceMeters } from '@/lib/distance';
 import { findNearbyDrivers } from '@/services/discoveryEngine';
 import { useRideStore, useSettingsStore } from '@/state';
-import type { CancellationReason } from '@/types';
+import type { CancellationReason, Location as GeoLocation } from '@/types';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { KeyboardAvoidingView, Platform, Pressable, StatusBar, StyleSheet, Text, View } from 'react-native';
+import {
+  Easing,
+  cancelAnimation,
+  runOnJS,
+  useSharedValue,
+  withRepeat,
+  withSequence,
+  withTiming,
+} from 'react-native-reanimated';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ActiveTripCard, CancellationModal, MatchingOverlay, RidePlannerSheet } from './components';
+
+// Simulated nearby Transporter vehicles shown idling around the customer
+// while there's no live driver location to display yet.
+const NEARBY_VEHICLE_MIN_COUNT = 2;
+const NEARBY_VEHICLE_MAX_COUNT = 4;
+const NEARBY_VEHICLE_RADIUS_METERS = 500;
+const VEHICLE_IDLE_JITTER_DEGREES = 0.00002;
+const METERS_PER_DEGREE_LAT = 111320;
+
+// How close the pickup pin needs to be to the live GPS dot to count as "the
+// same spot" — the pickup (raw GPS) and userLocation (road-snapped GPS) come
+// from independent fixes, so a tiny tolerance absorbs snapping drift instead
+// of requiring bit-exact coordinates.
+const PICKUP_LIVE_LOCATION_MATCH_METERS = 25;
+
+function generateNearbyVehicles(center: GeoLocation): MapVehicle[] {
+  const count =
+    NEARBY_VEHICLE_MIN_COUNT +
+    Math.floor(Math.random() * (NEARBY_VEHICLE_MAX_COUNT - NEARBY_VEHICLE_MIN_COUNT + 1));
+
+  return Array.from({ length: count }, (_, index) => {
+    // Uniform random point within the radius circle.
+    const r = NEARBY_VEHICLE_RADIUS_METERS * Math.sqrt(Math.random());
+    const theta = Math.random() * 2 * Math.PI;
+    const metersPerDegreeLng = METERS_PER_DEGREE_LAT * Math.cos((center.latitude * Math.PI) / 180);
+
+    return {
+      id: `nearby-vehicle-${index}-${Date.now()}`,
+      latitude: center.latitude + (r * Math.cos(theta)) / METERS_PER_DEGREE_LAT,
+      longitude: center.longitude + (r * Math.sin(theta)) / metersPerDegreeLng,
+      heading: Math.floor(Math.random() * 360),
+      variant: 'economy' as VehicleMarkerVariant,
+    };
+  });
+}
+
+interface VehicleIdleJitterProps {
+  id: string;
+  baseLat: number;
+  baseLng: number;
+  onJitter: (id: string, latitude: number, longitude: number) => void;
+}
+
+/**
+ * Non-visual driver that nudges a nearby vehicle's coordinate by a tiny
+ * random amount every ~3-4s so it feels alive. AnimatedVehicleMarker already
+ * smoothly interpolates any coordinate change it's given, so this only needs
+ * to hand it a new (barely different) target position on each cycle.
+ */
+function VehicleIdleJitter({ id, baseLat, baseLng, onJitter }: VehicleIdleJitterProps) {
+  const pulse = useSharedValue(0);
+
+  const triggerJitter = useCallback(() => {
+    const jitterLat = (Math.random() * 2 - 1) * VEHICLE_IDLE_JITTER_DEGREES;
+    const jitterLng = (Math.random() * 2 - 1) * VEHICLE_IDLE_JITTER_DEGREES;
+    onJitter(id, baseLat + jitterLat, baseLng + jitterLng);
+  }, [id, baseLat, baseLng, onJitter]);
+
+  useEffect(() => {
+    const halfCycleMs = 1500 + Math.random() * 500; // full cycle ~3-4s
+
+    pulse.value = withRepeat(
+      withSequence(
+        withTiming(1, { duration: halfCycleMs, easing: Easing.inOut(Easing.ease) }),
+        withTiming(0, { duration: halfCycleMs, easing: Easing.inOut(Easing.ease) }, (finished) => {
+          if (finished) {
+            runOnJS(triggerJitter)();
+          }
+        })
+      ),
+      -1,
+      false
+    );
+
+    return () => {
+      cancelAnimation(pulse);
+    };
+  }, [pulse, triggerJitter]);
+
+  return null;
+}
 
 /**
  * Passenger Home Screen
@@ -40,9 +132,38 @@ export function PassengerHome() {
   const [showCancellationModal, setShowCancellationModal] = useState(false);
   const [isMapDragging, setIsMapDragging] = useState(false);
   const [mapType, setMapType] = useState<'standard' | 'terrain' | 'hybrid'>('standard');
-  const [showH3Grid, setShowH3Grid] = useState(true);
+  const [showH3Grid, setShowH3Grid] = useState(false);
   const [matchingPhase, setMatchingPhase] = useState<'searching' | 'expanded'>('searching');
   const mapRef = useRef<any>(null);
+
+  // Debug-only feature: force the grid off if h3DebugMode is turned off while
+  // it's showing, so customers can never be left staring at hexagons with no
+  // toggle button left to dismiss them.
+  useEffect(() => {
+    if (!h3DebugMode && showH3Grid) {
+      setShowH3Grid(false);
+    }
+  }, [h3DebugMode, showH3Grid]);
+
+  // Simulated nearby Transporter vehicles, spawned once around the customer's
+  // first known location so they don't jump around as GPS fixes update.
+  const [baseNearbyVehicles, setBaseNearbyVehicles] = useState<MapVehicle[]>([]);
+  const [nearbyVehicles, setNearbyVehicles] = useState<MapVehicle[]>([]);
+
+  useEffect(() => {
+    if (userLocation && baseNearbyVehicles.length === 0) {
+      const generated = generateNearbyVehicles(userLocation);
+      setBaseNearbyVehicles(generated);
+      setNearbyVehicles(generated);
+    }
+  }, [userLocation, baseNearbyVehicles.length]);
+
+  const handleVehicleJitter = useCallback((id: string, latitude: number, longitude: number) => {
+    setNearbyVehicles((prev) => prev.map((v) => (v.id === id ? { ...v, latitude, longitude } : v)));
+  }, []);
+
+  // Only show simulated nearby cars before a booking is made.
+  const showNearbyVehicles = status === 'idle' || status === 'planning';
 
   // Reset to the "searching" phase every time a new matching cycle starts.
   useEffect(() => {
@@ -173,6 +294,24 @@ export function PassengerHome() {
   const shouldShowPickupMarker = !!destination || status === 'matching' || status === 'active' || isPickupManual;
   const pickupToDisplay = (shouldShowPickupMarker || activeTrip) ? (activeTrip?.pickup || pickup) : undefined;
 
+  // The blue live-location dot is only rendered in these statuses.
+  const showUserMarker = status === 'idle' || status === 'planning' || status === 'matching';
+
+  // Hide the plain pickup pin when it sits on top of the blue GPS dot —
+  // otherwise the same live location gets two markers. Pickup (raw GPS) and
+  // userLocation (road-snapped GPS) come from independent fixes, so allow a
+  // small tolerance instead of requiring exactly equal coordinates.
+  const pickupMatchesUserLocation =
+    showUserMarker &&
+    !!pickupToDisplay &&
+    !!userLocation &&
+    calculateDistanceMeters(
+      pickupToDisplay.latitude,
+      pickupToDisplay.longitude,
+      userLocation.latitude,
+      userLocation.longitude
+    ) <= PICKUP_LIVE_LOCATION_MATCH_METERS;
+
   // Debug logging for H3
   useEffect(() => {
     if (h3DebugMode && passengerHex9 && (status === 'matching' || status === 'planning')) {
@@ -202,12 +341,27 @@ export function PassengerHome() {
           showH3Grid={showH3Grid}
           h3Grid={h3Grid}
           routeCoordinates={routeCoordinates.length > 0 ? routeCoordinates : undefined}
-          showUserMarker={status === 'idle' || status === 'planning' || status === 'matching'}
+          showUserMarker={showUserMarker}
           showSearchPulse={status === 'matching' && matchingPhase === 'searching'}
+          hidePickupPin={pickupMatchesUserLocation}
+          vehicles={showNearbyVehicles ? nearbyVehicles : undefined}
           mapType={mapType}
           onPanDrag={handleMapDragStart}
           onRegionChangeComplete={handleMapDragEnd}
         />
+
+        {/* Drivers for the idle micro-movement of simulated nearby vehicles
+            (non-visual — each just nudges its own marker's coordinate) */}
+        {showNearbyVehicles &&
+          baseNearbyVehicles.map((vehicle) => (
+            <VehicleIdleJitter
+              key={vehicle.id}
+              id={vehicle.id}
+              baseLat={vehicle.latitude}
+              baseLng={vehicle.longitude}
+              onJitter={handleVehicleJitter}
+            />
+          ))}
 
         {/* Back Button - Upper-left corner, returns to Discover */}
         <View
@@ -225,24 +379,26 @@ export function PassengerHome() {
             zIndex: 10
           }}
         >
-          {/* H3 Grid Toggle Button */}
-          <Pressable
-            onPress={() => setShowH3Grid(!showH3Grid)}
-            className={`w-12 h-12 rounded-full items-center justify-center shadow-md ${showH3Grid ? 'bg-red-500' : 'bg-white'}`}
-            style={{
-              shadowColor: '#000',
-              shadowOffset: { width: 0, height: 2 },
-              shadowOpacity: 0.2,
-              shadowRadius: 3,
-              elevation: 5
-            }}
-          >
-            <Ionicons
-              name={showH3Grid ? 'grid' : 'grid-outline'}
-              size={24}
-              color={showH3Grid ? '#FFFFFF' : '#26344F'}
-            />
-          </Pressable>
+          {/* H3 Grid Toggle Button — debug-only, never shown to customers */}
+          {h3DebugMode && (
+            <Pressable
+              onPress={() => setShowH3Grid(!showH3Grid)}
+              className={`w-12 h-12 rounded-full items-center justify-center shadow-md ${showH3Grid ? 'bg-red-500' : 'bg-white'}`}
+              style={{
+                shadowColor: '#000',
+                shadowOffset: { width: 0, height: 2 },
+                shadowOpacity: 0.2,
+                shadowRadius: 3,
+                elevation: 5
+              }}
+            >
+              <Ionicons
+                name={showH3Grid ? 'grid' : 'grid-outline'}
+                size={24}
+                color={showH3Grid ? '#FFFFFF' : '#26344F'}
+              />
+            </Pressable>
+          )}
 
           {/* Map Type Toggle */}
           <Pressable

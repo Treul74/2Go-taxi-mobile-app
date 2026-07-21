@@ -87,6 +87,7 @@ export function RidePlannerSheet({ onRequestRide, isMapDragging = false }: RideP
     driverInstructions,
     setDriverInstructions,
     pickup,
+    isPickupManual,
     destination,
     setPickup,
     setDestination,
@@ -103,15 +104,21 @@ export function RidePlannerSheet({ onRequestRide, isMapDragging = false }: RideP
   useEffect(() => {
     if (currentLocation && !pickup) {
       setPickup(currentLocation);
-      // Always use the actual address from current location
-      const displayAddress = formatDisplayAddress(currentLocation.address);
-      setPickupQuery(displayAddress || 'Fetching location...');
+      // GPS pickup shows a fixed "Live location" label — the real
+      // reverse-geocoded address is still stored on the pickup itself,
+      // only the displayed text differs.
+      setPickupQuery('Live location');
     } else if (currentLocation && pickup && !pickupQuery) {
-      // If we have pickup but no query text, set it
-      const displayAddress = formatDisplayAddress(pickup.address);
-      setPickupQuery(displayAddress || 'Fetching location...');
+      // If we have pickup but no query text, restore it — showing the real
+      // address only for a manually-selected pickup, otherwise "Live location".
+      if (isPickupManual) {
+        const displayAddress = formatDisplayAddress(pickup.address);
+        setPickupQuery(displayAddress || 'Fetching location...');
+      } else {
+        setPickupQuery('Live location');
+      }
     }
-  }, [currentLocation, pickup, pickupQuery, setPickup]);
+  }, [currentLocation, pickup, pickupQuery, isPickupManual, setPickup]);
 
   // Hydrate the destination query when a destination was already set before
   // this screen mounted (e.g. picked on the Discover screen's "Where to?").

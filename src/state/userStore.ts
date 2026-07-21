@@ -1,3 +1,4 @@
+import { fetchCustomerAccount, fetchDriverAccount } from '@/services/accounts';
 import type {
   CustomerAccount,
   DriverAccount,
@@ -7,7 +8,6 @@ import type {
   UserProfile,
   UserRole,
 } from '@/types';
-import { fetchCustomerAccount, fetchDriverAccount } from '@/services/accounts';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { create } from 'zustand';
 
@@ -15,6 +15,15 @@ import { create } from 'zustand';
 // driver's cold start can restore driver mode instead of always defaulting
 // to passenger (see loadAccounts below).
 const ACTIVE_ROLE_KEY = '@2go/active_role';
+
+export class AccountsLoadError extends Error {
+  public cause: unknown;
+  constructor(cause: unknown) {
+    super('Accounts load failed');
+    this.name = 'AccountsLoadError';
+    this.cause = cause;
+  }
+}
 
 interface UserState {
   // User data
@@ -119,46 +128,72 @@ export const useUserStore = create<UserState>((set) => ({
 
   // Loads the logged-in user's customer + driver rows and syncs the visible
   // profile with the customer record (replacing the mock defaults).
+  // Uses Promise.allSettled so a single failing fetch/AsyncStorage read
+  // doesn't prevent applying any successful results. Any rejection is
+  // propagated as `AccountsLoadError` after state updates. `accountsLoading`
+  // is always reset in `finally` so the UI cannot remain stuck loading.
   loadAccounts: async () => {
     set({ accountsLoading: true });
-    const [customerAccount, driverAccount, storedRole] = await Promise.all([
-      fetchCustomerAccount(),
-      fetchDriverAccount(),
-      AsyncStorage.getItem(ACTIVE_ROLE_KEY),
-    ]);
-    set((state) => ({
-      customerAccount,
-      driverAccount,
-      accountsLoading: false,
-      role:
-        state.role === 'driver'
-          ? // Kick the app out of driver mode when the fetched row is no
-            // longer approved (e.g. admin rejected/suspended since the last
-            // switch). Only when a row exists — a null result can also mean
-            // a failed fetch, and that must not demote a legitimately
-            // approved driver mid-session.
-            driverAccount && driverAccount.accountStatus !== 'approved'
-            ? 'passenger'
-            : 'driver'
-          : // Not already in driver mode this session (e.g. cold start,
-            // which always initializes to 'passenger') — restore driver mode
-            // from the last explicitly chosen role, but only when the fetch
-            // actually confirms it's still approved.
-            storedRole === 'driver' && driverAccount?.accountStatus === 'approved'
+
+    type Settled<T> = PromiseSettledResult<T>;
+
+    try {
+      const [custRes, driverRes, roleRes] = await Promise.allSettled([
+        fetchCustomerAccount(),
+        fetchDriverAccount(),
+        AsyncStorage.getItem(ACTIVE_ROLE_KEY),
+      ]) as [Settled<CustomerAccount | null>, Settled<DriverAccount | null>, Settled<string | null>];
+
+      let customerAccount: CustomerAccount | null = null;
+      let driverAccount: DriverAccount | null = null;
+      let storedRole: string | null = null;
+      let firstError: unknown = null;
+
+      if (custRes.status === 'fulfilled') customerAccount = custRes.value;
+      else firstError = firstError ?? custRes.reason;
+
+      if (driverRes.status === 'fulfilled') driverAccount = driverRes.value;
+      else firstError = firstError ?? driverRes.reason;
+
+      if (roleRes.status === 'fulfilled') storedRole = roleRes.value;
+      else firstError = firstError ?? roleRes.reason;
+
+      // Apply any successful fetches to state so the app can use partial data.
+      set((state) => ({
+        customerAccount,
+        driverAccount,
+        // role calculation preserves the previous behaviour when rows exist
+        // and falls back to passenger otherwise.
+        role:
+          state.role === 'driver'
+            ? driverAccount && driverAccount.accountStatus !== 'approved'
+              ? 'passenger'
+              : 'driver'
+            : storedRole === 'driver' && driverAccount?.accountStatus === 'approved'
             ? 'driver'
             : 'passenger',
-      profile: customerAccount
-        ? {
-            ...state.profile,
-            id: customerAccount.id,
-            firstName: customerAccount.firstName,
-            lastName: customerAccount.lastName,
-            email: customerAccount.email,
-            phone: customerAccount.phoneNumber,
-            avatar: customerAccount.profilePhotoUrl ?? undefined,
-          }
-        : state.profile,
-    }));
+        profile: customerAccount
+          ? {
+              ...state.profile,
+              id: customerAccount.id,
+              firstName: customerAccount.firstName,
+              lastName: customerAccount.lastName,
+              email: customerAccount.email,
+              phone: customerAccount.phoneNumber,
+              avatar: customerAccount.profilePhotoUrl ?? undefined,
+            }
+          : state.profile,
+      }));
+
+      // If any of the underlying operations failed, surface a typed error so
+      // callers can handle the condition and avoid leaving the app in a
+      // perpetual 'checking' state.
+      if (firstError) {
+        throw new AccountsLoadError(firstError);
+      }
+    } finally {
+      set({ accountsLoading: false });
+    }
   },
 
   setDriverAccount: (account) => set({ driverAccount: account }),
@@ -217,4 +252,3 @@ export const useUserStore = create<UserState>((set) => ({
 
   resetOnboarding: () => set({ driverOnboarding: initialOnboarding }),
 }));
-
