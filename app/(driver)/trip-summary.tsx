@@ -3,7 +3,7 @@ import { formatCurrency } from '@/lib/fareCalculator';
 import { useDriverStore } from '@/state';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -14,16 +14,21 @@ import { SafeAreaView } from 'react-native-safe-area-context';
  * as-is (no store resets, no offline calls).
  */
 export default function DriverTripSummaryScreen() {
-  const { lastTripSummary } = useDriverStore();
+  const { lastTripSummary, finishTrip } = useDriverStore();
 
   const handleDone = () => {
+    finishTrip();
     router.replace('/(tabs)');
   };
 
-  if (!lastTripSummary) {
-    handleDone();
-    return null;
-  }
+  useEffect(() => {
+    if (!lastTripSummary) {
+      finishTrip();
+      router.replace('/(tabs)');
+    }
+  }, [lastTripSummary]);
+
+  if (!lastTripSummary) return null;
 
   const { passengerName, distance, duration, waitingDuration, fareAmount, serviceFeeAmount, netEarnings } = lastTripSummary;
 

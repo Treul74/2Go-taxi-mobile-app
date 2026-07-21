@@ -34,6 +34,7 @@ export interface OrderUpdatePayload {
   distance_to_pickup_km: number | null;
   trip_started_at: string | null;
   driver_arrived_at: string | null;
+  accepted_at: string | null;
   completed_at: string | null;
   fare_amount: number | string | null;
   updated_at: string | null;

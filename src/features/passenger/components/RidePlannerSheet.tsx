@@ -1,3 +1,4 @@
+import { USER_LOCATION_COLOR } from '@/components/map/markers';
 import { Button, IconButton, Input } from '@/components/ui';
 import { useCurrentLocation } from '@/hooks/useCurrentLocation';
 import { formatDisplayAddress } from '@/lib';
@@ -100,23 +101,27 @@ export function RidePlannerSheet({ onRequestRide, isMapDragging = false }: RideP
   // No filtered vehicles needed - use all vehicle options
   const vehicles = vehicleOptions;
 
-  // Set current location as pickup on mount
+  // Keep the pickup pinned to the customer's live GPS position (the location
+  // watcher emits a fresh fix every ~60s / 50m) until a pickup is manually
+  // selected. GPS pickup shows a fixed "Live location" label — the real
+  // reverse-geocoded address is still stored on the pickup itself, only the
+  // displayed text differs.
   useEffect(() => {
-    if (currentLocation && !pickup) {
-      setPickup(currentLocation);
-      // GPS pickup shows a fixed "Live location" label — the real
-      // reverse-geocoded address is still stored on the pickup itself,
-      // only the displayed text differs.
-      setPickupQuery('Live location');
-    } else if (currentLocation && pickup && !pickupQuery) {
-      // If we have pickup but no query text, restore it — showing the real
-      // address only for a manually-selected pickup, otherwise "Live location".
-      if (isPickupManual) {
-        const displayAddress = formatDisplayAddress(pickup.address);
-        setPickupQuery(displayAddress || 'Fetching location...');
-      } else {
+    if (!currentLocation) return;
+
+    if (!isPickupManual) {
+      // setPickup stores the currentLocation reference, so this only fires
+      // when the watcher has actually produced a new fix.
+      if (pickup !== currentLocation) {
+        setPickup(currentLocation);
+      }
+      if (pickupQuery !== 'Live location') {
         setPickupQuery('Live location');
       }
+    } else if (pickup && !pickupQuery) {
+      // Manually-selected pickup with no query text — restore its address.
+      const displayAddress = formatDisplayAddress(pickup.address);
+      setPickupQuery(displayAddress || 'Fetching location...');
     }
   }, [currentLocation, pickup, pickupQuery, isPickupManual, setPickup]);
 
@@ -173,9 +178,17 @@ export function RidePlannerSheet({ onRequestRide, isMapDragging = false }: RideP
 
   // Handle pickup selection
   const handleSelectPickup = useCallback((location: Location) => {
+    // "Your Location" in the search modal hands back the currentLocation
+    // reference — that's the live GPS position, so keep it non-manual and
+    // tracking instead of freezing it as a manual pickup.
+    if (location === currentLocation) {
+      setPickup(location, false);
+      setPickupQuery('Live location');
+      return;
+    }
     setPickup(location, true);
     setPickupQuery(formatDisplayAddress(location.address) || '');
-  }, [setPickup]);
+  }, [setPickup, currentLocation]);
 
   // Handle destination selection
   const handleSelectDestination = useCallback((location: Location) => {
@@ -252,6 +265,10 @@ export function RidePlannerSheet({ onRequestRide, isMapDragging = false }: RideP
     onRequestRide();
   }, [pickup, destination, currentLocation, setPickup, onRequestRide]);
 
+  // Live-location pickup renders its label and pin icon in the same blue as
+  // the map's user-location dot; a searched/manual pickup uses default colors.
+  const isLivePickup = !!pickup && !isPickupManual;
+
   // Get selected vehicle info
   const selectedVehicleInfo = vehicleOptions.find((v) => v.id === selectedVehicle);
   const currentPayment = paymentMethods.find((p) => p.id === paymentMethod)!;
@@ -317,8 +334,10 @@ export function RidePlannerSheet({ onRequestRide, isMapDragging = false }: RideP
               variant="search"
               placeholder={locationLoading ? "Getting your location..." : "Pickup location"}
               leftIcon="location"
+              leftIconColor={isLivePickup ? USER_LOCATION_COLOR : undefined}
               value={pickupQuery}
               editable={false}
+              style={isLivePickup ? { color: USER_LOCATION_COLOR } : undefined}
             />
             {locationLoading && (
               <View className="absolute right-4 top-3">

@@ -1,12 +1,12 @@
 import { fetchCustomerAccount, fetchDriverAccount } from '@/services/accounts';
 import type {
-  CustomerAccount,
-  DriverAccount,
-  DriverOnboardingData,
-  OnboardingStep,
-  SavedAddress,
-  UserProfile,
-  UserRole,
+    CustomerAccount,
+    DriverAccount,
+    DriverOnboardingData,
+    OnboardingStep,
+    SavedAddress,
+    UserProfile,
+    UserRole,
 } from '@/types';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { create } from 'zustand';
@@ -18,10 +18,13 @@ const ACTIVE_ROLE_KEY = '@2go/active_role';
 
 export class AccountsLoadError extends Error {
   public cause: unknown;
-  constructor(cause: unknown) {
+  public readonly kind: 'customer-account' | 'other';
+
+  constructor(cause: unknown, kind: 'customer-account' | 'other' = 'other') {
     super('Accounts load failed');
     this.name = 'AccountsLoadError';
     this.cause = cause;
+    this.kind = kind;
   }
 }
 
@@ -148,9 +151,14 @@ export const useUserStore = create<UserState>((set) => ({
       let driverAccount: DriverAccount | null = null;
       let storedRole: string | null = null;
       let firstError: unknown = null;
+      let errorKind: AccountsLoadError['kind'] = 'other';
 
-      if (custRes.status === 'fulfilled') customerAccount = custRes.value;
-      else firstError = firstError ?? custRes.reason;
+      if (custRes.status === 'fulfilled') {
+        customerAccount = custRes.value;
+      } else {
+        firstError = firstError ?? custRes.reason;
+        errorKind = 'customer-account';
+      }
 
       if (driverRes.status === 'fulfilled') driverAccount = driverRes.value;
       else firstError = firstError ?? driverRes.reason;
@@ -189,7 +197,7 @@ export const useUserStore = create<UserState>((set) => ({
       // callers can handle the condition and avoid leaving the app in a
       // perpetual 'checking' state.
       if (firstError) {
-        throw new AccountsLoadError(firstError);
+        throw new AccountsLoadError(firstError, errorKind);
       }
     } finally {
       set({ accountsLoading: false });
