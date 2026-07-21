@@ -274,8 +274,8 @@ the full report as a markdown file in the audit_export/ folder
 at the project root.
 
 Rules:
-- File name format: audit_YYYY-MM-DD_HH-MM_[description].md
-  Example: audit_2026-07-20_14-30_database-tables.md
+- File name format: audit_DD/MM/YY_[description].md
+  Example: audit_20/07/26_14:30_database-tables.md
 - The file must contain the full audit report — every finding,
   every file path, every code snippet, every table
 - Save the file immediately after the audit completes, before

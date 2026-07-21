@@ -26,6 +26,9 @@ import type {
 import { router } from 'expo-router';
 import { create } from 'zustand';
 
+/** How long after driver acceptance the customer is still allowed to cancel. */
+export const CANCELLATION_WINDOW_MS = 60_000;
+
 /** Pulls the driver's latest telemetry fix off an order update, falling back to whatever the trip already had. */
 function mergeDriverTelemetry(
   update: OrderUpdatePayload,
@@ -386,6 +389,9 @@ export const useRideStore = create<RideState>((set, get) => ({
               vehicle: { model: '', color: '', plate: '' },
               estimatedArrival: update.estimated_arrival_minutes ?? 0,
               fare: state.orderFare ?? 0,
+              // Start of the cancellation window — this branch only runs once,
+              // the first time the order is seen as accepted.
+              acceptedAt: new Date(),
               ...mergeDriverTelemetry(update),
             };
 
@@ -452,6 +458,12 @@ export const useRideStore = create<RideState>((set, get) => ({
   // Cancel ride
   cancelRide: (reason?: CancellationReason, note?: string) => {
     const state = get();
+
+    // Once the 1-minute post-acceptance cancellation window has closed, the
+    // customer can no longer cancel — silently no-op instead of cancelling.
+    if (state.activeTrip && Date.now() - state.activeTrip.acceptedAt.getTime() >= CANCELLATION_WINDOW_MS) {
+      return;
+    }
 
     if (state.orderId) {
       unsubscribeFromOrder(state.orderId);

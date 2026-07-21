@@ -1,5 +1,5 @@
-import React from 'react';
-import { View, Text, Pressable } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { View, Text, Pressable, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Card, SkeletonBox } from '@/components/ui';
 import type { UserProfile } from '@/types';
@@ -14,6 +14,13 @@ interface ProfileCardProps {
  * User profile card with avatar, name, and rating
  */
 export function ProfileCard({ profile, onEditPress, loading = false }: ProfileCardProps) {
+  const [avatarLoadFailed, setAvatarLoadFailed] = useState(false);
+
+  // A new/changed photo URL deserves a fresh attempt to load it.
+  useEffect(() => {
+    setAvatarLoadFailed(false);
+  }, [profile.avatar]);
+
   return (
     <Card variant="elevated" padding="lg" radius="2xl" onPress={onEditPress}>
       <View className="flex-row items-center">
@@ -23,11 +30,14 @@ export function ProfileCard({ profile, onEditPress, loading = false }: ProfileCa
             <SkeletonBox width={80} height={80} borderRadius={40} />
           ) : (
             <View className="w-20 h-20 rounded-full bg-primary items-center justify-center">
-              {profile.avatar ? (
-                <View className="w-20 h-20 rounded-full overflow-hidden">
-                  {/* Image would go here */}
-                  <Ionicons name="person" size={40} color="#FFFFFF" />
-                </View>
+              {profile.avatar && !avatarLoadFailed ? (
+                <Image
+                  source={{ uri: profile.avatar }}
+                  style={{ width: 80, height: 80, borderRadius: 40 }}
+                  onError={() => setAvatarLoadFailed(true)}
+                />
+              ) : profile.avatar ? (
+                <Ionicons name="person" size={40} color="#FFFFFF" />
               ) : (
                 <Text className="text-white text-3xl font-bold">
                   {profile.firstName.charAt(0).toUpperCase()}

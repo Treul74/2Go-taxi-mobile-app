@@ -139,6 +139,8 @@ export interface ActiveTrip {
   };
   estimatedArrival: number; // minutes
   fare: number;
+  // When the order transitioned to 'accepted' — start of the cancellation window.
+  acceptedAt: Date;
   startedAt?: Date;
   // Live position from the driver's telemetry ping (order.driver_current_lat/lng/heading),
   // null until the first realtime update arrives after acceptance.
@@ -188,6 +190,7 @@ export interface TripSummary {
   passengerName: string;
   distance: number; // km
   duration: number; // minutes
+  waitingDuration: number; // minutes
   fareAmount: number;
   serviceFeeAmount: number;
   netEarnings: number;
