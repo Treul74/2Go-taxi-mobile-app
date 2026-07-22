@@ -136,8 +136,8 @@ export default function DriverTripScreen() {
                         }
                     }
                 );
-            } catch (error) {
-                console.warn('Location tracking error:', error);
+            } catch {
+                // Non-critical — location tracking will retry on next mount.
             }
         }
 
@@ -274,6 +274,10 @@ export default function DriverTripScreen() {
         });
     };
 
+    const handleChatPassenger = () => {
+        router.push(`/chat/${currentTrip.id}`);
+    };
+
     const formatTime = (seconds: number) => {
         const mins = Math.floor(seconds / 60);
         const secs = seconds % 60;
@@ -322,6 +326,12 @@ export default function DriverTripScreen() {
                                 </Text>
                             </View>
                         </View>
+                        <Pressable
+                            onPress={handleChatPassenger}
+                            className="w-10 h-10 rounded-full bg-gray-100 items-center justify-center ml-2"
+                        >
+                            <Ionicons name="chatbubble" size={20} color="#26344F" />
+                        </Pressable>
                         <Pressable
                             onPress={handleCallPassenger}
                             className="w-10 h-10 rounded-full bg-success items-center justify-center ml-2"

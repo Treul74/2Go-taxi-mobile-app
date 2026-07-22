@@ -1,6 +1,7 @@
 export { ActiveTripCard } from './ActiveTripCard';
 export { CancellationModal } from './CancellationModal';
 export { CancelSearchDialog } from './CancelSearchDialog';
+export { FareReceiptModal } from './FareReceiptModal';
 export { LocationAutocomplete } from './LocationAutocomplete';
 export { LocationSearchModal } from './LocationSearchModal';
 export { MapPickerModal } from './MapPickerModal';

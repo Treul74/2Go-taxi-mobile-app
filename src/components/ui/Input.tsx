@@ -70,7 +70,7 @@ export function Input({
   const variantClasses = {
     default: 'bg-white border-2',
     filled: 'bg-gray-100 border-0',
-    search: 'bg-white border-0 shadow-card',
+    search: 'bg-transparent border-0',
   };
 
   const baseClasses = `

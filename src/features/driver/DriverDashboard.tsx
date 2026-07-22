@@ -60,7 +60,6 @@ export function DriverDashboard() {
         // 1. Check if services are enabled
         const enabled = await Location.hasServicesEnabledAsync().catch(() => false);
         if (!enabled) {
-          console.warn('Location services are fully disabled on this device.');
           return;
         }
 
@@ -139,13 +138,8 @@ export function DriverDashboard() {
           subscription = await startWatching(Location.Accuracy.Low);
         }
 
-      } catch (error: any) {
-        // Silently handle 'unsatisfied device settings' to avoid console spam
-        if (error?.message?.includes('unsatisfied device settings')) {
-          console.warn('Location tracking paused: Device location settings (GPS/Network) are not optimal.');
-        } else {
-          console.warn('Non-critical location error:', error?.message);
-        }
+      } catch {
+        // Silently handle location errors (including 'unsatisfied device settings').
       }
     }
 

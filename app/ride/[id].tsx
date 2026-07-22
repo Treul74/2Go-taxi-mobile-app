@@ -141,7 +141,7 @@ export default function RideSummaryScreen() {
             </View>
             
             {/* Fare */}
-            {ride.fare && (
+            {ride.fare != null && (
               <View className="flex-row items-center justify-between py-3 border-t border-gray-100">
                 <Text className="text-secondary">Total Fare</Text>
                 <Text className="text-primary font-bold text-2xl">
@@ -149,9 +149,9 @@ export default function RideSummaryScreen() {
                 </Text>
               </View>
             )}
-            
+
             {/* Duration */}
-            {ride.duration && (
+            {ride.duration != null && (
               <View className="flex-row items-center justify-between py-3 border-t border-gray-100">
                 <Text className="text-secondary">Trip Duration</Text>
                 <Text className="text-primary font-semibold">
@@ -245,7 +245,7 @@ export default function RideSummaryScreen() {
                 ))}
               </View>
               
-              {ride.rating && (
+              {ride.rating != null && (
                 <Text className="text-secondary text-sm text-center mt-2">
                   You rated this trip {ride.rating} star{ride.rating !== 1 ? 's' : ''}
                 </Text>

@@ -10,7 +10,7 @@ import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 import type { MapProps } from './Map';
 import { MapPlaceholder } from './MapPlaceholder';
-import { AnimatedUserLocation, AnimatedVehicleMarker, NavigationArrowMarker, SearchPulseMarker, UserLocationMarker } from './markers';
+import { AnimatedUserLocation, AnimatedVehicleMarker, ArrivalTimeMarker, NavigationArrowMarker, SearchPulseMarker, UserLocationMarker } from './markers';
 
 // Lazy import react-native-maps to handle missing native modules gracefully
 let MapView: any = null;
@@ -30,7 +30,6 @@ try {
   hasNativeModule = true;
 } catch (error) {
   // react-native-maps not available (Expo Go)
-  console.log('react-native-maps not available, using MapPlaceholder');
   hasNativeModule = false;
 }
 
@@ -71,6 +70,7 @@ export const Map = React.forwardRef<any, MapProps>(({
   showZoomControls = false,
   hidePickupPin = false,
   isLiveLocation = false,
+  arrivalTime,
 }: MapProps, ref) => {
   const mapRef = useRef<any>(null);
   const [isReady, setIsReady] = useState(false);
@@ -269,8 +269,8 @@ export const Map = React.forwardRef<any, MapProps>(({
           zoom: newZoom,
         }, { duration: 500 });
       }
-    } catch (e) {
-      console.log('Zoom error', e);
+    } catch {
+      // Non-critical — zoom is a convenience control.
     }
   };
 
@@ -391,17 +391,32 @@ export const Map = React.forwardRef<any, MapProps>(({
           )
         )}
 
-        {/* Destination marker */}
+        {/* Destination marker — a white "arrive at" callout bubble once an
+            arrival time is known, otherwise the default red pin */}
         {destination && (
-          <Marker
-            coordinate={{
-              latitude: destination.latitude,
-              longitude: destination.longitude,
-            }}
-            title="Destination"
-            description={destination.address}
-            pinColor="#FE5035"
-          />
+          arrivalTime ? (
+            <Marker
+              key="destination-arrival-time"
+              coordinate={{
+                latitude: destination.latitude,
+                longitude: destination.longitude,
+              }}
+              anchor={{ x: 0.5, y: 1 }}
+              tracksViewChanges={false}
+            >
+              <ArrivalTimeMarker arrivalTime={arrivalTime} />
+            </Marker>
+          ) : (
+            <Marker
+              coordinate={{
+                latitude: destination.latitude,
+                longitude: destination.longitude,
+              }}
+              title="Destination"
+              description={destination.address}
+              pinColor="#FE5035"
+            />
+          )
         )}
 
         {/* OSM-Style Route Rendering */}

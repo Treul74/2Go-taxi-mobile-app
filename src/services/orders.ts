@@ -1,4 +1,5 @@
 import { insforge } from '@/lib/insforge';
+import { useAuthStore } from '@/state/authStore';
 import type { DriverInfo, Location, PaymentMethod, RideHistoryItem, RideHistoryStatus, VehicleType } from '@/types';
 import { fetchCustomerAccount } from './accounts';
 
@@ -114,18 +115,43 @@ export async function createOrder(
   };
 }
 
-/** Marks the order cancelled. Returns an error message, or null on success. */
-export async function cancelOrder(orderId: string): Promise<string | null> {
-  const { error } = await insforge.database
+/**
+ * Marks the order cancelled. Also returns the assigned driver's push token
+ * (null if the order hadn't been accepted yet) so the caller can notify them.
+ */
+export async function cancelOrder(
+  orderId: string
+): Promise<{ errorMessage: string | null; driverPushToken: string | null }> {
+  const { data, error } = await insforge.database
     .from('orders')
     .update({
       status: 'cancelled',
       cancelled_at: new Date().toISOString(),
       cancelled_by: 'customer',
     })
-    .eq('id', orderId);
+    .eq('id', orderId)
+    .select('id, drivers(push_token)')
+    .single<{ id: string; drivers: { push_token: string | null } | null }>();
 
-  return error ? error.message : null;
+  if (error || !data) {
+    return { errorMessage: error?.message ?? 'Could not cancel the ride.', driverPushToken: null };
+  }
+  return { errorMessage: null, driverPushToken: data.drivers?.push_token ?? null };
+}
+
+/** Push token of the currently logged-in customer, for self-notifications. */
+export async function fetchOwnCustomerPushToken(): Promise<string | null> {
+  const authId = useAuthStore.getState().authUserId;
+  if (!authId) return null;
+
+  const { data, error } = await insforge.database
+    .from('customers')
+    .select('push_token')
+    .eq('auth_id', authId)
+    .maybeSingle<{ push_token: string | null }>();
+
+  if (error || !data) return null;
+  return data.push_token;
 }
 
 /** Updates an active order's pickup location after the customer edits it during matching. */

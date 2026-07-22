@@ -124,8 +124,8 @@ export default function DriverNavigateScreen() {
                         }
                     }
                 );
-            } catch (error) {
-                console.warn('GPS tracking error', error);
+            } catch {
+                // Non-critical — location tracking will retry on next mount.
             }
         }
 

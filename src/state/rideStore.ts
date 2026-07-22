@@ -1,11 +1,14 @@
 import { getHex9 } from '@/core/spatialEngine';
 import { calculateFare, calculateFareForVehicle } from '@/lib/fareCalculator';
 import { getDistanceMatrix } from '@/lib/google/mapsApi';
+import { sendPushNotification } from '@/lib/notifications';
+import { fetchNearbyDriverPushTokens } from '@/services/driverOrders';
 import {
   cancelOrder,
   createOrder,
   fetchCustomerOrderHistory,
   fetchOrderDriver,
+  fetchOwnCustomerPushToken,
   subscribeToOrderUpdates,
   unsubscribeFromOrder,
   type OrderUpdatePayload,
@@ -77,6 +80,11 @@ interface RideState {
   // Active trip
   activeTrip: ActiveTrip | null;
 
+  // Final fare popup shown right after a trip completes, before the rating
+  // screen. Set by applyOrderUpdate's 'completed' case instead of navigating
+  // straight to rating; dismissFareReceipt() clears it and navigates.
+  fareReceipt: { rideId: string; fare: number; paymentMethod: PaymentMethod } | null;
+
   // History
   rideHistory: RideHistoryItem[];
   isLoadingHistory: boolean;
@@ -104,6 +112,7 @@ interface RideState {
   setBookingFor: (booking: { name: string; phone: string } | null) => void;
   setDriverInstructions: (instructions: string) => void;
   setActiveTrip: (trip: ActiveTrip | null) => void;
+  dismissFareReceipt: () => void;
 
   // Complex actions
   calculateVehicleFares: () => Promise<void>;
@@ -186,6 +195,7 @@ export const useRideStore = create<RideState>((set, get) => ({
   bookingFor: null,
   driverInstructions: '',
   activeTrip: null,
+  fareReceipt: null,
   rideHistory: [],
   isLoadingHistory: false,
   vehicleOptions: defaultVehicleOptions,
@@ -201,7 +211,7 @@ export const useRideStore = create<RideState>((set, get) => ({
     // down here, not just the local status flag.
     if (prev === 'matching' && status === 'idle' && orderId) {
       unsubscribeFromOrder(orderId);
-      cancelOrder(orderId).then((errorMessage) => {
+      cancelOrder(orderId).then(({ errorMessage }) => {
         if (errorMessage) console.error('Failed to cancel order:', errorMessage);
       });
       set({ status, orderId: null, orderFare: null });
@@ -234,6 +244,17 @@ export const useRideStore = create<RideState>((set, get) => ({
   setBookingFor: (booking) => set({ bookingFor: booking }),
   setDriverInstructions: (instructions) => set({ driverInstructions: instructions }),
   setActiveTrip: (trip) => set({ activeTrip: trip }),
+
+  // Dismisses the final-fare popup and takes the customer to the rating
+  // screen — the same navigation applyOrderUpdate's 'completed' case used to
+  // fire immediately.
+  dismissFareReceipt: () => {
+    const { fareReceipt } = get();
+    set({ fareReceipt: null });
+    if (fareReceipt) {
+      router.replace({ pathname: '/rating/[id]', params: { id: fareReceipt.rideId } });
+    }
+  },
 
   // Calculates real per-vehicle fares/ETAs for the current pickup/destination
   // pair, replacing the mock estimatedFare/eta on vehicleOptions with values
@@ -330,6 +351,10 @@ export const useRideStore = create<RideState>((set, get) => ({
     }
 
     set({ orderId: order.id, orderFare: order.fareAmount });
+
+    fetchNearbyDriverPushTokens(state.selectedVehicle, state.pickup).then((tokens) => {
+      tokens.forEach((token) => sendPushNotification(token, 'New ride request', 'New ride request nearby'));
+    });
 
     const subscribeError = await subscribeToOrderUpdates(order.id, (update) => {
       get().applyOrderUpdate(update);
@@ -442,16 +467,23 @@ export const useRideStore = create<RideState>((set, get) => ({
         const trip = state.activeTrip;
         get().completeRide(update);
         // completeRide() already pushed a matching entry into rideHistory
-        // under the same id, which the rating screen reads back out.
+        // under the same id, which the rating screen reads back out. The
+        // fare popup is shown first; dismissFareReceipt() does the
+        // navigation to rating once the customer taps OK.
         if (trip) {
-          router.replace({ pathname: '/rating/[id]', params: { id: trip.id } });
+          const fare = update.fare_amount != null ? Number(update.fare_amount) : trip.fare;
+          set({ fareReceipt: { rideId: trip.id, fare, paymentMethod: state.paymentMethod } });
         }
         return;
       }
 
       case 'cancelled':
-        // Cancelled server-side (driver/admin) — clean up locally
+      case 'expired':
+        // Cancelled server-side (driver/admin) or expired unmatched — clean up locally
         unsubscribeFromOrder(update.id);
+        fetchOwnCustomerPushToken().then((token) => {
+          sendPushNotification(token, 'No driver found', 'No driver found, please try again');
+        });
         set({ status: 'idle', activeTrip: null, orderId: null, orderFare: null });
         return;
     }
@@ -469,8 +501,9 @@ export const useRideStore = create<RideState>((set, get) => ({
 
     if (state.orderId) {
       unsubscribeFromOrder(state.orderId);
-      cancelOrder(state.orderId).then((errorMessage) => {
+      cancelOrder(state.orderId).then(({ errorMessage, driverPushToken }) => {
         if (errorMessage) console.error('Failed to cancel order:', errorMessage);
+        sendPushNotification(driverPushToken, 'Ride cancelled', 'Ride was cancelled');
       });
     }
 

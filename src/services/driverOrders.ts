@@ -1,5 +1,11 @@
+import { getHex9, getNearbyHexes } from '@/core/spatialEngine';
 import { insforge } from '@/lib/insforge';
-import type { VehicleType } from '@/types';
+import type { Location, VehicleType } from '@/types';
+
+// Matches driverStore's NEARBY_HEX_RING — the same "nearby" radius used to
+// filter incoming requests down to this driver is used in reverse here, to
+// find drivers near a freshly-created order.
+const NEARBY_HEX_RING = 6;
 
 /**
  * Driver-side order discovery and acceptance against InsForge.
@@ -45,14 +51,56 @@ export async function fetchPendingOrders(
   return data;
 }
 
+interface NearbyDriverRow {
+  push_token: string | null;
+  current_lat: number | null;
+  current_lng: number | null;
+}
+
+/**
+ * Push tokens of online, approved drivers of the matching vehicle type within
+ * range of a freshly-created order's pickup point. Called from
+ * rideStore.requestRide() to notify nearby drivers of a new ride request.
+ */
+export async function fetchNearbyDriverPushTokens(
+  vehicleType: VehicleType,
+  pickup: Location
+): Promise<string[]> {
+  const { data, error } = await insforge.database
+    .from('drivers')
+    .select('push_token, current_lat, current_lng')
+    .eq('vehicle_type', vehicleType)
+    .eq('driver_status', 'online')
+    .eq('is_approved', true)
+    .not('push_token', 'is', null)
+    .returns<NearbyDriverRow[]>();
+
+  if (error || !data) return [];
+
+  const pickupHex9 = getHex9(pickup.latitude, pickup.longitude);
+  const nearbyHexes = new Set(getNearbyHexes(pickupHex9, NEARBY_HEX_RING));
+
+  return data
+    .filter((d) => d.current_lat != null && d.current_lng != null)
+    .filter((d) => nearbyHexes.has(getHex9(d.current_lat as number, d.current_lng as number)))
+    .map((d) => d.push_token)
+    .filter((token): token is string => !!token);
+}
+
+interface OrderCustomerPushRow {
+  id: string;
+  customers: { push_token: string | null } | null;
+}
+
 /**
  * Accepts a pending order for the given driver. Fails (with a friendly
- * message) if another driver already claimed it first.
+ * message) if another driver already claimed it first. Also returns the
+ * customer's push token so the caller can notify them the ride was accepted.
  */
 export async function acceptOrder(
   orderId: string,
   driverId: string
-): Promise<string | null> {
+): Promise<{ errorMessage: string | null; customerPushToken: string | null }> {
   const { data, error } = await insforge.database
     .from('orders')
     .update({
@@ -63,13 +111,13 @@ export async function acceptOrder(
     .eq('id', orderId)
     .eq('status', 'pending')
     .is('driver_id', null)
-    .select('id')
-    .single();
+    .select('id, customers(push_token)')
+    .single<OrderCustomerPushRow>();
 
   if (error || !data) {
-    return 'This ride was just taken by another driver.';
+    return { errorMessage: 'This ride was just taken by another driver.', customerPushToken: null };
   }
-  return null;
+  return { errorMessage: null, customerPushToken: data.customers?.push_token ?? null };
 }
 
 /** Persists the driver's live position/heading to the order row (called on a 5s interval while an order is active). */
@@ -94,27 +142,46 @@ export async function updateDriverTelemetry(
 /**
  * Marks the driver arrived at pickup. Status stays 'accepted' -- the
  * customer app reads driver_arrived_at itself to show "driver waiting";
- * startOrderTrip() is what advances status to 'in_progress'.
+ * startOrderTrip() is what advances status to 'in_progress'. Also returns the
+ * customer's push token so the caller can notify them the driver has arrived.
  */
-export async function markDriverArrived(orderId: string): Promise<string | null> {
-  const { error } = await insforge.database
+export async function markDriverArrived(
+  orderId: string
+): Promise<{ errorMessage: string | null; customerPushToken: string | null }> {
+  const { data, error } = await insforge.database
     .from('orders')
     .update({ driver_arrived_at: new Date().toISOString() })
     .eq('id', orderId)
-    .eq('status', 'accepted');
+    .eq('status', 'accepted')
+    .select('id, customers(push_token)')
+    .single<OrderCustomerPushRow>();
 
-  return error ? error.message : null;
+  if (error || !data) {
+    return { errorMessage: error?.message ?? 'Could not record arrival.', customerPushToken: null };
+  }
+  return { errorMessage: null, customerPushToken: data.customers?.push_token ?? null };
 }
 
-/** Advances an accepted order to 'in_progress' when the driver starts the trip. */
-export async function startOrderTrip(orderId: string): Promise<string | null> {
-  const { error } = await insforge.database
+/**
+ * Advances an accepted order to 'in_progress' when the driver starts the
+ * trip. Also returns the customer's push token so the caller can notify them
+ * the trip has started.
+ */
+export async function startOrderTrip(
+  orderId: string
+): Promise<{ errorMessage: string | null; customerPushToken: string | null }> {
+  const { data, error } = await insforge.database
     .from('orders')
     .update({ status: 'in_progress', trip_started_at: new Date().toISOString() })
     .eq('id', orderId)
-    .eq('status', 'accepted');
+    .eq('status', 'accepted')
+    .select('id, customers(push_token)')
+    .single<OrderCustomerPushRow>();
 
-  return error ? error.message : null;
+  if (error || !data) {
+    return { errorMessage: error?.message ?? 'Could not start the trip.', customerPushToken: null };
+  }
+  return { errorMessage: null, customerPushToken: data.customers?.push_token ?? null };
 }
 
 export interface CompletedOrderTotals {
@@ -127,24 +194,35 @@ export interface CompletedOrderTotals {
  * Completes an in-progress order with the final calculated fare. completed_at
  * is server-stamped and the driver's wallet is credited automatically by a
  * trigger (see migrations/20260709075443_add-driver-wallet-ledger-and-trip-completion.sql)
- * -- this call only needs to flip status and set the final fare_amount.
+ * -- this call only needs to flip status and set the final fare_amount. Also
+ * returns the customer's push token so the caller can notify them the trip
+ * is complete.
  */
 export async function completeOrderTrip(
   orderId: string,
   fareAmount: number
-): Promise<{ totals: CompletedOrderTotals | null; errorMessage: string | null }> {
+): Promise<{
+  totals: CompletedOrderTotals | null;
+  errorMessage: string | null;
+  customerPushToken: string | null;
+}> {
   const { data, error } = await insforge.database
     .from('orders')
     .update({ status: 'completed', fare_amount: fareAmount })
     .eq('id', orderId)
     .eq('status', 'in_progress')
-    .select('fare_amount, service_fee_amount')
-    .single<{ fare_amount: number | string; service_fee_amount: number | string | null }>();
+    .select('fare_amount, service_fee_amount, customers(push_token)')
+    .single<{
+      fare_amount: number | string;
+      service_fee_amount: number | string | null;
+      customers: { push_token: string | null } | null;
+    }>();
 
   if (error || !data) {
     return {
       totals: null,
       errorMessage: error?.message ?? 'Could not complete the trip. Please try again.',
+      customerPushToken: null,
     };
   }
 
@@ -153,6 +231,7 @@ export async function completeOrderTrip(
   return {
     totals: { fareAmount: fare, serviceFeeAmount: serviceFee, netEarnings: fare - serviceFee },
     errorMessage: null,
+    customerPushToken: data.customers?.push_token ?? null,
   };
 }
 

@@ -118,13 +118,6 @@ export function useCurrentLocation() {
       } catch (err: any) {
         if (!isMounted) return;
 
-        // Silently handle 'unsatisfied device settings'
-        if (err?.message?.includes('unsatisfied device settings')) {
-          console.warn('Location monitoring paused: Device settings are suboptimal.');
-        } else {
-          console.warn('Location initialization error:', err?.message);
-        }
-
         setError('Failed to get location');
         setLoading(false);
       }
@@ -186,9 +179,6 @@ export function useCurrentLocation() {
         hex9,
       });
     } catch (err: any) {
-      if (!err?.message?.includes('unsatisfied device settings')) {
-        console.warn('Location refresh error:', err?.message);
-      }
       setError('Failed to refresh location');
     } finally {
       setLoading(false);

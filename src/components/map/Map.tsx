@@ -113,6 +113,9 @@ export interface MapProps {
 
   /** The pickup is the customer's live GPS position — never render the green pickup pin (the user-location indicator already marks the spot) */
   isLiveLocation?: boolean;
+
+  /** Formatted arrival time (e.g. "10:59 PM") — when set, replaces the red destination pin with a white "arrive at" callout bubble */
+  arrivalTime?: string | null;
 }
 
 
