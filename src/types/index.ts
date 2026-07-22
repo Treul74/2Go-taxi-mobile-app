@@ -177,9 +177,10 @@ export interface IncomingRequest {
   distance: number; // km, from the driver's current location to pickup
   // Customer identity isn't visible pre-acceptance (RLS only grants a driver
   // read access to the customer of an order once driver_id is set to them).
-  // Placeholder until then; patched with the real name/rating after accept.
+  // Placeholder until then; patched with the real name/rating/id after accept.
   passengerName: string;
   passengerRating: number;
+  customerId?: string;
   expiresAt: Date;
 }
 
@@ -188,6 +189,7 @@ export interface IncomingRequest {
 export interface TripSummary {
   tripId: string;
   passengerName: string;
+  customerId: string;
   distance: number; // km
   duration: number; // minutes
   waitingDuration: number; // minutes

@@ -286,6 +286,13 @@ export default function RootLayout() {
                 }}
               />
               <Stack.Screen
+                name="rating/driver"
+                options={{
+                  headerShown: false,
+                  gestureEnabled: false,
+                }}
+              />
+              <Stack.Screen
                 name="ride/[id]"
                 options={{
                   presentation: 'card',

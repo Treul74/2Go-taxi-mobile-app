@@ -10,9 +10,11 @@ import {
   type PendingOrderPayload,
 } from '@/services/driverOrders';
 import { setDriverStatus } from '@/services/accounts';
+import { submitDriverRating } from '@/services/ratings';
 import { sendPushNotification } from '@/lib/notifications';
 import { useAuthStore } from '@/state/authStore';
 import { useDriverWalletStore, type TripReceipt } from '@/state/driverWalletStore';
+import { useUserStore } from '@/state/userStore';
 import type { DriverStats, IncomingRequest, TripSummary, VehicleType } from '@/types';
 import { create } from 'zustand';
 
@@ -79,6 +81,12 @@ interface DriverState {
   completeTrip: (receiptData: Omit<TripReceipt, 'id' | 'timestamp'>) => Promise<boolean>;
   finishTrip: () => void;
   cancelTrip: () => void;
+  ratePassenger: (
+    orderId: string,
+    customerId: string,
+    rating: number,
+    categories: { punctuality?: number; communication?: number; payment?: number }
+  ) => Promise<void>;
 }
 
 // Mock driver stats — earnings/trip counters, unrelated to ride requests.
@@ -314,6 +322,7 @@ export const useDriverStore = create<DriverState>((set, get) => ({
           ...current.currentTrip,
           passengerName: customer.name,
           passengerRating: customer.rating,
+          customerId: customer.id,
         },
       });
     });
@@ -418,6 +427,7 @@ export const useDriverStore = create<DriverState>((set, get) => ({
       lastTripSummary: {
         tripId: currentTrip.id,
         passengerName: receiptData.passengerName,
+        customerId: currentTrip.customerId ?? '',
         distance: receiptData.distance,
         duration: receiptData.duration,
         waitingDuration: receiptData.waitingDuration ?? 0,
@@ -438,6 +448,34 @@ export const useDriverStore = create<DriverState>((set, get) => ({
       waitingDuration: 0,
       lastTripSummary: null,
     });
+  },
+
+  // Records the driver's optional star rating of the passenger (1-5,
+  // skippable) and persists it to InsForge (rated_by='driver') -- a trigger
+  // recomputes the customer's rating average. driverId is the driver's own
+  // account id (not the trip/order id in orderId), matching the ratings
+  // table's driver_id FK.
+  ratePassenger: async (orderId, customerId, rating, categories) => {
+    const driverId = useUserStore.getState().driverAccount?.id;
+    if (!driverId) {
+      console.error('Failed to submit driver rating: no driver account id.');
+      return;
+    }
+
+    try {
+      const errorMessage = await submitDriverRating(
+        orderId,
+        customerId,
+        driverId,
+        rating,
+        categories
+      );
+      if (errorMessage) {
+        console.error('Failed to submit driver rating:', errorMessage);
+      }
+    } catch (error) {
+      console.error('Failed to submit driver rating:', error);
+    }
   },
 
   cancelTrip: () => {

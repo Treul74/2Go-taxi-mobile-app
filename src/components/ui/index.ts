@@ -13,6 +13,7 @@ export { Divider } from './Divider';
 export { IconButton } from './IconButton';
 export { Input } from './Input';
 export { Pill } from './Pill';
+export { RatingStars } from './RatingStars';
 export { RideActionSlider } from './RideActionSlider';
 export { SegmentedControl } from './SegmentedControl';
 export { SkeletonBox } from './SkeletonBox';
