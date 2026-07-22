@@ -74,8 +74,6 @@ export function RidePlannerSheet({ onRequestRide, isMapDragging = false }: RideP
 
   // Ride state
   const {
-    mode,
-    setMode,
     selectedVehicle,
     setVehicle,
     vehicleOptions,
@@ -253,12 +251,6 @@ export function RidePlannerSheet({ onRequestRide, isMapDragging = false }: RideP
     // Optionally fetch directions for route preview (non-blocking)
     if (finalPickup && destination) {
       getDirections(finalPickup, destination)
-        .then(route => {
-          if (route) {
-            console.log('Route calculated:', route.distance.text, route.duration.text);
-            // You can store this in state if you want to show the route on the map
-          }
-        })
         .catch(err => console.error('Failed to get directions:', err));
     }
 
@@ -317,7 +309,7 @@ export function RidePlannerSheet({ onRequestRide, isMapDragging = false }: RideP
         <View className="w-12 h-1.5 bg-gray-200 rounded-full" />
       </View>
       <ScrollView
-        className="px-5 pt-4 pb-0"
+        className="px-5 pt-2 pb-0"
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={{ paddingBottom: 1 }}
@@ -327,7 +319,7 @@ export function RidePlannerSheet({ onRequestRide, isMapDragging = false }: RideP
         {/* Pickup Location input */}
         <Pressable
           onPress={() => setShowPickupSearchModal(true)}
-          className="mt-4"
+          className="mt-2"
         >
           <View pointerEvents="none">
             <Input
@@ -353,6 +345,8 @@ export function RidePlannerSheet({ onRequestRide, isMapDragging = false }: RideP
           )}
         </Pressable>
 
+        <View className="h-px bg-gray-100 mx-1" />
+
         {/* Where to input */}
         <Pressable
           onPress={() => setShowDestinationSearchModal(true)}
@@ -372,10 +366,8 @@ export function RidePlannerSheet({ onRequestRide, isMapDragging = false }: RideP
           </View>
         </Pressable>
 
-
-
         {/* Vehicle Carousel */}
-        <View className="mt-4">
+        <View className="mt-3">
           <VehicleCarousel
             vehicles={vehicles}
             selectedVehicle={selectedVehicle}

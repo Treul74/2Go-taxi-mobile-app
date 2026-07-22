@@ -95,8 +95,8 @@ export default function DriverNavigationScreen() {
                         }
                     }
                 );
-            } catch (error) {
-                console.warn('GPS tracking error', error);
+            } catch {
+                // Non-critical — location tracking will retry on next mount.
             }
         }
 
@@ -129,7 +129,6 @@ export default function DriverNavigationScreen() {
         );
 
         if (!route) {
-            console.warn('GPS tracking error', 'Directions fetch failed');
             return;
         }
 
@@ -186,9 +185,7 @@ export default function DriverNavigationScreen() {
     };
 
     const handleOpenSettings = () => {
-        Linking.openSettings().catch((error) => {
-            console.warn('GPS tracking error', error);
-        });
+        Linking.openSettings().catch(() => {});
     };
 
     const distance = driverLocation && currentTrip
@@ -389,10 +386,16 @@ export default function DriverNavigationScreen() {
                                             {currentTrip.passengerName}
                                         </Text>
                                         <View className="flex-row items-center">
-                                            <Ionicons name="star" size={14} color="#FFB800" />
-                                            <Text className="text-secondary text-sm ml-1">
-                                                {currentTrip.passengerRating.toFixed(1)}
-                                            </Text>
+                                            {currentTrip.passengerRating > 0 ? (
+                                                <>
+                                                    <Ionicons name="star" size={14} color="#FFB800" />
+                                                    <Text className="text-secondary text-sm ml-1">
+                                                        {currentTrip.passengerRating.toFixed(1)}
+                                                    </Text>
+                                                </>
+                                            ) : (
+                                                <Text className="text-secondary text-sm">New</Text>
+                                            )}
                                         </View>
                                     </View>
                                     {/* Call Button moved here */}

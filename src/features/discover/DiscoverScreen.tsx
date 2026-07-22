@@ -1,3 +1,4 @@
+import { SkeletonBox } from '@/components/ui';
 import { LocationSearchModal, MapPickerModal } from '@/features/passenger/components';
 import { useCurrentLocation } from '@/hooks/useCurrentLocation';
 import { formatDisplayAddress, formatShortAddress } from '@/lib';
@@ -6,7 +7,7 @@ import type { Location } from '@/types';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Alert, ImageBackground, Pressable, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -31,20 +32,33 @@ export function DiscoverScreen() {
   const [showMapPicker, setShowMapPicker] = useState(false);
 
   const rideHistory = useRideStore((state) => state.rideHistory);
+  const fetchRideHistory = useRideStore((state) => state.fetchRideHistory);
+  const isLoadingHistory = useRideStore((state) => state.isLoadingHistory);
   const setDestination = useRideStore((state) => state.setDestination);
   const setMode = useRideStore((state) => state.setMode);
 
-  const recentDestinations = useMemo(() => {
-    const seen = new Set<string>();
-    const items: { id: string; location: Location }[] = [];
+  useEffect(() => {
+    fetchRideHistory();
+  }, []);
+
+  // Top 3 dropoff addresses by visit count, most-visited first.
+  const topDestinations = useMemo(() => {
+    const counts = new Map<string, { count: number; location: Location; id: string }>();
+
     for (const ride of rideHistory) {
-      if (!seen.has(ride.destination.address)) {
-        seen.add(ride.destination.address);
-        items.push({ id: ride.id, location: ride.destination });
+      const addr = ride.destination.address;
+      if (!addr) continue;
+      const existing = counts.get(addr);
+      if (existing) {
+        existing.count++;
+      } else {
+        counts.set(addr, { count: 1, location: ride.destination, id: ride.id });
       }
-      if (items.length === 2) break;
     }
-    return items;
+
+    return Array.from(counts.values())
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 3);
   }, [rideHistory]);
 
   const locationLabel = currentLocation
@@ -128,16 +142,31 @@ export function DiscoverScreen() {
           </Pressable>
         </View>
 
-        {recentDestinations.length > 0 ? (
+        {isLoadingHistory && topDestinations.length === 0 ? (
           <View className="mx-5 mt-3 bg-white rounded-4xl shadow-card overflow-hidden">
-            {recentDestinations.map((item, index) => (
+            {[0, 1, 2].map((i) => (
+              <View
+                key={i}
+                className={`flex-row items-center px-4 py-4 ${i > 0 ? 'border-t border-gray-100' : ''}`}
+              >
+                <SkeletonBox width={40} height={40} borderRadius={20} />
+                <View className="flex-1 ml-3">
+                  <SkeletonBox width="70%" height={14} />
+                  <SkeletonBox width="90%" height={11} style={{ marginTop: 6 }} />
+                </View>
+              </View>
+            ))}
+          </View>
+        ) : topDestinations.length > 0 ? (
+          <View className="mx-5 mt-3 bg-white rounded-4xl shadow-card overflow-hidden">
+            {topDestinations.map((item, index) => (
               <Pressable
                 key={item.id}
                 onPress={() => goToHomeWithDestination(item.location)}
                 className={`flex-row items-center px-4 py-4 ${index > 0 ? 'border-t border-gray-100' : ''}`}
               >
                 <View className="w-10 h-10 rounded-full bg-gray-100 items-center justify-center">
-                  <Ionicons name="time-outline" size={18} color="#7B8387" />
+                  <Ionicons name="location-outline" size={18} color="#7B8387" />
                 </View>
                 <View className="flex-1 ml-3">
                   <Text className="text-primary font-semibold text-base" numberOfLines={1}>

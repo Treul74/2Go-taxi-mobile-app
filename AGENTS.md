@@ -191,6 +191,10 @@ estimated_arrival_minutes, distance_to_pickup_km, requested_at,
 accepted_at, driver_arrived_at, trip_started_at, completed_at,
 created_at, updated_at
 
+### messages
+id, order_id (FK → orders), sender_type ('customer'/'driver'), sender_id,
+message_text, created_at
+
 ---
 
 ## Naming
@@ -301,7 +305,6 @@ performance audits, and any other read-only investigation.
 - Fare formula not yet split by vehicle type
 - ActivityScreen does not yet fetch on tab open
 - Driver ride history screen not yet built
-- Chat messages not persisted (auto-reply simulated)
 - `app/ride/[id].tsx` shows static SVG map, not real map
 - Travel mode selector on navigate.tsx is UI-only
 

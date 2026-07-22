@@ -39,7 +39,7 @@ export default function CustomerTripScreen() {
   };
 
   const handleChat = () => {
-    router.push('/chat/conv_001');
+    router.push(`/chat/${activeTrip.id}`);
   };
 
   const handleConfirmCancellation = (reason: CancellationReason, note?: string) => {

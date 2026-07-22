@@ -38,7 +38,6 @@ try {
   PROVIDER_GOOGLE = maps.PROVIDER_GOOGLE;
   hasNativeModule = true;
 } catch (error) {
-  console.log('react-native-maps not available');
   hasNativeModule = false;
 }
 

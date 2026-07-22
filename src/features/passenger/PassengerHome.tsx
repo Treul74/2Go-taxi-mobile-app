@@ -2,15 +2,16 @@ import type { MapVehicle, VehicleMarkerVariant } from '@/components/map';
 import { Map, ProvinceLabel } from '@/components/map';
 import { getNearbyHexes } from '@/core/spatialEngine';
 
-import { BackButton, IconButton } from '@/components/ui';
+import { IconButton } from '@/components/ui';
 import { useSnappedLocation } from '@/hooks/useSnappedLocation';
 import { calculateDistanceMeters } from '@/lib/distance';
 import { findNearbyDrivers } from '@/services/discoveryEngine';
 import { useRideStore, useSettingsStore } from '@/state';
 import type { CancellationReason, Location as GeoLocation } from '@/types';
 import { Ionicons } from '@expo/vector-icons';
+import { router } from 'expo-router';
 import * as Location from 'expo-location';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { KeyboardAvoidingView, Platform, Pressable, StatusBar, StyleSheet, Text, View } from 'react-native';
 import {
   Easing,
@@ -28,7 +29,12 @@ import { ActiveTripCard, CancellationModal, MatchingOverlay, RidePlannerSheet } 
 // while there's no live driver location to display yet.
 const NEARBY_VEHICLE_MIN_COUNT = 2;
 const NEARBY_VEHICLE_MAX_COUNT = 4;
-const NEARBY_VEHICLE_RADIUS_METERS = 500;
+// Must stay inside the map's default "premium street-level zoom" viewport
+// (latitudeDelta 0.0035 / longitudeDelta 0.0016, used in getInitialRegion and
+// handleRecenter) — that view only spans ~195m half-height / ~87m half-width
+// from center. A larger radius scatters vehicles past the visible camera
+// edge, where they still render but are indistinguishable from not showing.
+const NEARBY_VEHICLE_RADIUS_METERS = 80;
 const VEHICLE_IDLE_JITTER_DEGREES = 0.00002;
 const METERS_PER_DEGREE_LAT = 111320;
 
@@ -119,6 +125,7 @@ export function PassengerHome() {
     destination,
     isPickupManual,
     routeCoordinates,
+    routeDurationMinutes,
     passengerHex9,
     requestRide,
     cancelRide,
@@ -211,10 +218,8 @@ export function PassengerHome() {
           longitudeDelta: 0.0016,
         }, 1000);
       }
-    } catch (error: any) {
-      if (!error?.message?.includes('unsatisfied device settings')) {
-        console.warn('Failed to re-center:', error?.message);
-      }
+    } catch {
+      // Silently ignore — re-centering is a non-critical convenience action.
     }
   }, []);
 
@@ -324,6 +329,14 @@ export function PassengerHome() {
   // Determine if we should show route on map
   const showRoute = (status === 'active' || (!!pickup && !!destination && routeCoordinates.length > 0)) && activeTrip?.status !== 'waiting';
 
+  // Formatted arrival time shown on the destination map marker once a route
+  // duration is known.
+  const arrivalTime = useMemo(() => {
+    if (!destination || !routeDurationMinutes) return null;
+    const arrival = new Date(Date.now() + routeDurationMinutes * 60000);
+    return arrival.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }, [destination, routeDurationMinutes]);
+
   return (
     <SafeAreaView className="flex-1 bg-background" edges={['top']}>
       <StatusBar barStyle="dark-content" backgroundColor="#E7F1F9" />
@@ -335,6 +348,7 @@ export function PassengerHome() {
           userLocation={userLocation || undefined}
           pickup={pickupToDisplay || undefined}
           destination={activeTrip?.destination || destination || undefined}
+          arrivalTime={arrivalTime}
 
           showRoute={showRoute}
           passengerHex9={passengerHex9}
@@ -364,12 +378,33 @@ export function PassengerHome() {
             />
           ))}
 
-        {/* Back Button - Upper-left corner, returns to Discover */}
+        {/* Back Button - floats above the bottom sheet, returns to Discover */}
         <View
           className="absolute left-4"
-          style={{ top: insets.top + 16, zIndex: 20 }}
+          style={{
+            bottom: isMapDragging
+              ? (insets.bottom + 100)
+              : (status === 'active' ? 360 : 420),
+            zIndex: 15,
+          }}
         >
-          <BackButton />
+          <Pressable
+            onPress={() => router.back()}
+            className="bg-white w-12 h-12 rounded-full items-center justify-center"
+            style={{
+              shadowColor: '#000',
+              shadowOffset: { width: 0, height: 2 },
+              shadowOpacity: 0.2,
+              shadowRadius: 3,
+              elevation: 5,
+            }}
+          >
+            <Ionicons
+              name="arrow-back"
+              size={24}
+              color="#26344F"
+            />
+          </Pressable>
         </View>
 
         {/* Floating Controls Container (Vertical Stack) */}

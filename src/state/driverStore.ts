@@ -9,8 +9,8 @@ import {
   startOrderTrip,
   type PendingOrderPayload,
 } from '@/services/driverOrders';
-import { sendArrivalNotification } from '@/services/notifications';
 import { setDriverStatus } from '@/services/accounts';
+import { sendPushNotification } from '@/lib/notifications';
 import { useAuthStore } from '@/state/authStore';
 import { useDriverWalletStore, type TripReceipt } from '@/state/driverWalletStore';
 import type { DriverStats, IncomingRequest, TripSummary, VehicleType } from '@/types';
@@ -288,7 +288,7 @@ export const useDriverStore = create<DriverState>((set, get) => ({
     const request = get().incomingRequests.find((r) => r.id === id);
     if (!request) return null;
 
-    const errorMessage = await acceptOrder(id, driverId);
+    const { errorMessage, customerPushToken } = await acceptOrder(id, driverId);
     if (errorMessage) {
       // Someone else already accepted it — drop it from this driver's list too.
       set((state) => ({
@@ -296,6 +296,8 @@ export const useDriverStore = create<DriverState>((set, get) => ({
       }));
       return null;
     }
+
+    sendPushNotification(customerPushToken, 'Ride accepted', 'Your driver is on the way');
 
     set((state) => ({
       incomingRequests: state.incomingRequests.filter((r) => r.id !== id),
@@ -333,13 +335,13 @@ export const useDriverStore = create<DriverState>((set, get) => ({
     const { currentTrip } = get();
     if (!currentTrip) return false;
 
-    const errorMessage = await markDriverArrived(currentTrip.id);
+    const { errorMessage, customerPushToken } = await markDriverArrived(currentTrip.id);
     if (errorMessage) {
       console.error('Failed to record arrival:', errorMessage);
       return false;
     }
 
-    sendArrivalNotification(currentTrip.id);
+    sendPushNotification(customerPushToken, 'Driver arrived', 'Your driver has arrived');
     set({ tripStatus: 'arrived', waitingStartTime: new Date() });
     return true;
   },
@@ -366,11 +368,13 @@ export const useDriverStore = create<DriverState>((set, get) => ({
     const { currentTrip, waitingStartTime } = get();
     if (!currentTrip) return false;
 
-    const errorMessage = await startOrderTrip(currentTrip.id);
+    const { errorMessage, customerPushToken } = await startOrderTrip(currentTrip.id);
     if (errorMessage) {
       console.error('Failed to start trip:', errorMessage);
       return false;
     }
+
+    sendPushNotification(customerPushToken, 'Trip started', 'Your trip has started');
 
     let duration = 0;
     if (waitingStartTime) {
@@ -396,11 +400,16 @@ export const useDriverStore = create<DriverState>((set, get) => ({
     const { currentTrip } = get();
     if (!currentTrip) return false;
 
-    const { totals, errorMessage } = await completeOrderTrip(currentTrip.id, receiptData.totalFare);
+    const { totals, errorMessage, customerPushToken } = await completeOrderTrip(
+      currentTrip.id,
+      receiptData.totalFare
+    );
     if (errorMessage || !totals) {
       console.error('Failed to complete trip:', errorMessage);
       return false;
     }
+
+    sendPushNotification(customerPushToken, 'Trip completed', 'Trip completed');
 
     await useDriverWalletStore.getState().fetchWallet();
 

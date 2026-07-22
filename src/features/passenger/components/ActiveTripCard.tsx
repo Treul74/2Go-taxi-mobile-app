@@ -95,7 +95,7 @@ export function ActiveTripCard({ trip, onEndTrip, onCancelTrip, isMapDragging = 
   };
 
   const handleChat = () => {
-    router.push('/chat/conv_001');
+    router.push(`/chat/${trip.id}`);
   };
 
   // Status text mapping
@@ -149,10 +149,18 @@ export function ActiveTripCard({ trip, onEndTrip, onCancelTrip, isMapDragging = 
               {trip.driver.name}
             </Text>
             <View className="flex-row items-center mt-0.5">
-              <Ionicons name="star" size={14} color="#FFB800" />
-              <Text className="text-secondary text-sm ml-1">
-                {trip.driver.rating.toFixed(1)} • {trip.driver.tripsCompleted} trips
-              </Text>
+              {trip.driver.rating > 0 ? (
+                <>
+                  <Ionicons name="star" size={14} color="#FFB800" />
+                  <Text className="text-secondary text-sm ml-1">
+                    {trip.driver.rating.toFixed(1)} • {trip.driver.tripsCompleted} trips
+                  </Text>
+                </>
+              ) : (
+                <Text className="text-secondary text-sm">
+                  New • {trip.driver.tripsCompleted} trips
+                </Text>
+              )}
             </View>
           </View>
 

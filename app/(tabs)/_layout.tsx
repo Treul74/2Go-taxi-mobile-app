@@ -3,9 +3,14 @@ import '@/lib/polyfills';
 import { useMessagingStore, useUserStore } from '@/state';
 import { Ionicons } from '@expo/vector-icons';
 import { Tabs } from 'expo-router';
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+// How often the Messages tab badge refreshes in the background (lighter than
+// the 5s in-chat poll -- this runs for the whole logged-in session, not just
+// while a chat thread is open).
+const UNREAD_BADGE_POLL_MS = 15000;
 
 /**
  * Tab layout for 2Go app
@@ -21,7 +26,16 @@ export default function TabLayout() {
 
     // Get unread message count for badge
     const conversations = useMessagingStore((state) => state.conversations);
+    const loadConversations = useMessagingStore((state) => state.loadConversations);
     const totalUnread = conversations.reduce((sum, c) => sum + c.unreadCount, 0);
+
+    // Keeps the badge live across the whole logged-in session, not just while
+    // the Messages tab itself is open (see MessagesScreen's focus refetch).
+    useEffect(() => {
+        loadConversations();
+        const interval = setInterval(loadConversations, UNREAD_BADGE_POLL_MS);
+        return () => clearInterval(interval);
+    }, [role, loadConversations]);
 
     // Get safe area insets for proper spacing on notched devices
     const insets = useSafeAreaInsets();

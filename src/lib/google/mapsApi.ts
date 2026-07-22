@@ -680,7 +680,6 @@ export async function snapToRoads(
     const data = await response.json();
 
     if (!data.snappedPoints || data.snappedPoints.length === 0) {
-      console.warn('Snap to Roads returned no points');
       return path; // Fallback to original path
     }
 
