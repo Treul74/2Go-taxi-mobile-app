@@ -1,4 +1,4 @@
-import { Button, Card, Input } from '@/components/ui';
+import { Button, Card, Input, RatingStars } from '@/components/ui';
 import { useRideStore } from '@/state';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -18,6 +18,9 @@ export default function RatingScreen() {
   const rateRide = useRideStore((state) => state.rateRide);
 
   const [rating, setRating] = useState(0);
+  const [drivingSkill, setDrivingSkill] = useState(0);
+  const [cleanliness, setCleanliness] = useState(0);
+  const [communication, setCommunication] = useState(0);
   const [comment, setComment] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
@@ -93,6 +96,42 @@ export default function RatingScreen() {
             ))}
           </View>
 
+          <Text className="text-secondary text-sm mt-4 mb-2 text-center">
+            Rate your experience
+          </Text>
+
+          <View className="w-full">
+            <View className="flex-row items-center py-3 border-b border-gray-100">
+              <View className="w-10 h-10 rounded-full bg-gray-100 items-center justify-center">
+                <Ionicons name="car-outline" size={20} color="#7B8387" />
+              </View>
+              <View className="flex-1 ml-3">
+                <Text className="text-primary font-semibold text-sm">Driving Skill</Text>
+              </View>
+              <RatingStars size="sm" value={drivingSkill} onChange={setDrivingSkill} />
+            </View>
+
+            <View className="flex-row items-center py-3 border-b border-gray-100">
+              <View className="w-10 h-10 rounded-full bg-gray-100 items-center justify-center">
+                <Ionicons name="sparkles-outline" size={20} color="#7B8387" />
+              </View>
+              <View className="flex-1 ml-3">
+                <Text className="text-primary font-semibold text-sm">Cleanliness</Text>
+              </View>
+              <RatingStars size="sm" value={cleanliness} onChange={setCleanliness} />
+            </View>
+
+            <View className="flex-row items-center py-3">
+              <View className="w-10 h-10 rounded-full bg-gray-100 items-center justify-center">
+                <Ionicons name="chatbubble-outline" size={20} color="#7B8387" />
+              </View>
+              <View className="flex-1 ml-3">
+                <Text className="text-primary font-semibold text-sm">Communication</Text>
+              </View>
+              <RatingStars size="sm" value={communication} onChange={setCommunication} />
+            </View>
+          </View>
+
           {rating > 0 && (
             <Input
               placeholder="Leave a comment (optional)"
@@ -105,7 +144,7 @@ export default function RatingScreen() {
         </View>
 
         <Button variant="accent" fullWidth onPress={handleDone} disabled={rating === 0} loading={submitting}>
-          Submit Rating
+          Submit Feedback
         </Button>
         <Button variant="ghost" fullWidth className="mt-2" onPress={handleDone} disabled={submitting}>
           Skip

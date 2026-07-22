@@ -17,8 +17,7 @@ export default function DriverTripSummaryScreen() {
   const { lastTripSummary, finishTrip } = useDriverStore();
 
   const handleDone = () => {
-    finishTrip();
-    router.replace('/(tabs)');
+    router.replace('/rating/driver');
   };
 
   useEffect(() => {

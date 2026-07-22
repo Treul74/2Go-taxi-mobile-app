@@ -1,4 +1,4 @@
-import { IconButton } from '@/components/ui';
+import { BackButton } from '@/components/ui';
 import { useCurrentLocation } from '@/hooks/useCurrentLocation';
 import { formatDisplayAddress } from '@/lib';
 import { updateOrderPickup } from '@/services/orders';
@@ -192,7 +192,7 @@ export function MatchingOverlay({ onCancel, onPhaseChange }: MatchingOverlayProp
 
           {/* Back arrow, bottom-left of the map area */}
           <View className="absolute left-4 z-20" style={{ bottom: COLLAPSED_SHEET_HEIGHT + insets.bottom + 16 }}>
-            <IconButton icon="arrow-back" variant="primary" size="lg" onPress={onCancel} />
+            <BackButton onPress={onCancel} />
           </View>
         </>
       )}

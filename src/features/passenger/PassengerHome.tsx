@@ -2,7 +2,7 @@ import type { MapVehicle, VehicleMarkerVariant } from '@/components/map';
 import { Map, ProvinceLabel } from '@/components/map';
 import { getNearbyHexes } from '@/core/spatialEngine';
 
-import { IconButton } from '@/components/ui';
+import { BackButton, IconButton } from '@/components/ui';
 import { useSnappedLocation } from '@/hooks/useSnappedLocation';
 import { calculateDistanceMeters } from '@/lib/distance';
 import { findNearbyDrivers } from '@/services/discoveryEngine';
@@ -388,23 +388,7 @@ export function PassengerHome() {
             zIndex: 15,
           }}
         >
-          <Pressable
-            onPress={() => router.back()}
-            className="bg-white w-12 h-12 rounded-full items-center justify-center"
-            style={{
-              shadowColor: '#000',
-              shadowOffset: { width: 0, height: 2 },
-              shadowOpacity: 0.2,
-              shadowRadius: 3,
-              elevation: 5,
-            }}
-          >
-            <Ionicons
-              name="arrow-back"
-              size={24}
-              color="#26344F"
-            />
-          </Pressable>
+          <BackButton onPress={() => router.back()} />
         </View>
 
         {/* Floating Controls Container (Vertical Stack) */}

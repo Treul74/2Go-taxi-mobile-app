@@ -637,6 +637,7 @@ export const useRideStore = create<RideState>((set, get) => ({
       bookingFor: null,
       driverInstructions: '',
       activeTrip: null,
+      fareReceipt: null,
       orderId: null,
       orderFare: null,
     });

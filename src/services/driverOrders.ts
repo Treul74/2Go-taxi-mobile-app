@@ -242,10 +242,10 @@ interface OrderCustomerRow {
   rating: number | string | null;
 }
 
-/** Name/rating of the customer on an order the driver has just accepted. */
+/** Name/rating/id of the customer on an order the driver has just accepted. */
 export async function fetchOrderCustomer(
   orderId: string
-): Promise<{ name: string; rating: number } | null> {
+): Promise<{ id: string; name: string; rating: number } | null> {
   const { data, error } = await insforge.database
     .from('orders')
     .select('customer_id, customers(first_name, last_name, rating)')
@@ -256,6 +256,7 @@ export async function fetchOrderCustomer(
 
   const { first_name, last_name, rating } = data.customers;
   return {
+    id: data.customer_id,
     name: `${first_name ?? ''} ${last_name ?? ''}`.trim() || 'Passenger',
     rating: Number(rating) || 0,
   };
