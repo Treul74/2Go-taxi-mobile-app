@@ -9,6 +9,10 @@ import { router, type Href } from 'expo-router';
 import { useEffect, useRef } from 'react';
 import { Platform } from 'react-native';
 
+const useLastNotificationResponseCompat = Platform.OS === 'web'
+  ? () => null
+  : Notifications.useLastNotificationResponse;
+
 // Where a notification tap should land: the active trip screen when a trip
 // is ongoing, home otherwise.
 function resolveNotificationRoute(): Href {
@@ -37,7 +41,7 @@ function resolveNotificationRoute(): Href {
  * into a stack that doesn't exist yet.
  */
 export function useNotificationTapNavigation(enabled: boolean) {
-  const lastResponse = Notifications.useLastNotificationResponse();
+  const lastResponse = useLastNotificationResponseCompat();
   const handledResponse = useRef<typeof lastResponse>(null);
 
   useEffect(() => {

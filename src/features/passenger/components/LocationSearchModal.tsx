@@ -411,7 +411,7 @@ export function LocationSearchModal({
             </ScrollView>
 
             {/* Repositioned Back Arrow - Floating near the bottom/keyboard */}
-            <BackButton onPress={onClose} size="lg" style={styles.floatingBackButton} />
+            <BackButton onPress={onClose} style={styles.floatingBackButton} />
           </View>
         </KeyboardAvoidingView>
       </SafeAreaView>

@@ -269,6 +269,28 @@ Not yet split by vehicle type — known gap to address.
   saved as a `.md` file in the `audit_export/` folder — never left only in
   chat output (see Audit Reports below for the full rule)
 
+## Back Button Standard
+
+Every back arrow in the entire app (passenger, driver, all screens) must
+use the BackButton component from `src/components/ui/BackButton.tsx`.
+
+The component is self-contained:
+- 48×48 white circle
+- rounded-full
+- shadow: color #000, offset (0,2), opacity 0.2, radius 3, elevation 5
+- Ionicons arrow-back, size 24, #26344F
+- Default onPress: router.back()
+
+Usage:
+```
+<BackButton />                    (default)
+<BackButton onPress={customFn} /> (override)
+```
+
+Never implement a custom back arrow outside of this component.
+Never use chevron-back — always arrow-back.
+Never add extra shadow wrapper Views around BackButton.
+
 ---
 
 ## Audit Reports

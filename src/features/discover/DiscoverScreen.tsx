@@ -46,6 +46,8 @@ export function DiscoverScreen() {
     const counts = new Map<string, { count: number; location: Location; id: string }>();
 
     for (const ride of rideHistory) {
+      if (ride.status !== 'completed') continue;
+
       const addr = ride.destination.address;
       if (!addr) continue;
       const existing = counts.get(addr);

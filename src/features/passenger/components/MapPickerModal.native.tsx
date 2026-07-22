@@ -239,8 +239,6 @@ export function MapPickerModal({
         {/* Floating Back Button - Anchored just above the bottom card, whatever its height */}
         <BackButton
           onPress={onClose}
-          size="md"
-          color="#1A1A1A"
           style={[
             styles.backButton,
             {
