@@ -1,10 +1,10 @@
-import { Button, Card, Input, RatingStars } from '@/components/ui';
+import { Button, RatingStars } from '@/components/ui';
+import { calculateDistanceKm } from '@/lib/distance';
 import { useRideStore } from '@/state';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import React, { useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { Image, ScrollView, Text, View } from 'react-native';
 
 /**
  * Post-trip rating screen. Reached from rideStore.applyOrderUpdate when an
@@ -32,124 +32,141 @@ export default function RatingScreen() {
       await rateRide(id, rating, comment.trim() || undefined);
       setSubmitting(false);
     }
-    router.replace('/(tabs)');
+    router.replace('/discover');
   };
 
+  const driverName = ride?.driver?.name ?? 'your driver';
+  const initials = ride?.driver?.name
+    ? ride.driver.name
+        .split(' ')
+        .map((part) => part[0])
+        .slice(0, 2)
+        .join('')
+        .toUpperCase()
+    : '?';
+
+  const distanceKm =
+    ride?.pickup && ride?.destination
+      ? calculateDistanceKm(
+          ride.pickup.latitude,
+          ride.pickup.longitude,
+          ride.destination.latitude,
+          ride.destination.longitude
+        )
+      : null;
+
   return (
-    <SafeAreaView className="flex-1 bg-background items-center justify-center px-6" edges={['top', 'bottom']}>
-      <Card variant="elevated" padding="lg" radius="2xl" className="w-full">
-        <View className="items-center py-4">
-          <View className="w-16 h-16 rounded-full bg-success/10 items-center justify-center mb-4">
-            <Ionicons name="checkmark-circle" size={40} color="#10B981" />
-          </View>
-          <Text className="text-primary font-bold text-xl mb-1">
-            Trip Completed
-          </Text>
-          {ride?.fare != null && (
-            <View className="w-full bg-gray-100 rounded-3xl p-4 mb-6">
-              {ride.baseFare != null && (
-                <>
-                  <View className="flex-row justify-between mb-2">
-                    <Text className="text-secondary text-sm">Base fare</Text>
-                    <Text className="text-primary text-sm">K{ride.baseFare.toFixed(2)}</Text>
-                  </View>
-                  <View className="flex-row justify-between mb-3 pb-3 border-b border-gray-200">
-                    <Text className="text-secondary text-sm">Distance & time</Text>
-                    <Text className="text-primary text-sm">
-                      K{(ride.fare - ride.baseFare).toFixed(2)}
-                    </Text>
-                  </View>
-                </>
-              )}
-              <View className="flex-row justify-between">
-                <Text className="text-primary font-bold">Total fare</Text>
-                <Text className="text-primary font-bold">K{ride.fare.toFixed(2)}</Text>
-              </View>
-            </View>
-          )}
+    <ScrollView className="flex-1 bg-background" contentContainerStyle={{ paddingBottom: 24 }}>
+      <View className="items-center pt-4 pb-2">
+        <Text className="text-primary font-bold text-lg">Trip Complete</Text>
+      </View>
 
-          {ride?.driver && (
-            <View className="items-center mb-6">
-              <View className="w-16 h-16 rounded-full bg-gray-200 items-center justify-center mb-2">
-                <Ionicons name="person" size={32} color="#7B8387" />
-              </View>
-              <Text className="text-primary font-semibold text-base">
-                {ride.driver.name}
-              </Text>
-            </View>
-          )}
-
-          <Text className="text-secondary text-sm mb-3">
-            How was your trip?
-          </Text>
-
-          <View className="flex-row items-center mb-6">
-            {[1, 2, 3, 4, 5].map((star) => (
-              <Pressable key={star} onPress={() => setRating(star)} hitSlop={8}>
-                <Ionicons
-                  name={star <= rating ? 'star' : 'star-outline'}
-                  size={36}
-                  color={star <= rating ? '#FFB800' : '#CBD5E1'}
-                  style={{ marginHorizontal: 4 }}
-                />
-              </Pressable>
-            ))}
-          </View>
-
-          <Text className="text-secondary text-sm mt-4 mb-2 text-center">
-            Rate your experience
-          </Text>
-
-          <View className="w-full">
-            <View className="flex-row items-center py-3 border-b border-gray-100">
-              <View className="w-10 h-10 rounded-full bg-gray-100 items-center justify-center">
-                <Ionicons name="car-outline" size={20} color="#7B8387" />
-              </View>
-              <View className="flex-1 ml-3">
-                <Text className="text-primary font-semibold text-sm">Driving Skill</Text>
-              </View>
-              <RatingStars size="sm" value={drivingSkill} onChange={setDrivingSkill} />
-            </View>
-
-            <View className="flex-row items-center py-3 border-b border-gray-100">
-              <View className="w-10 h-10 rounded-full bg-gray-100 items-center justify-center">
-                <Ionicons name="sparkles-outline" size={20} color="#7B8387" />
-              </View>
-              <View className="flex-1 ml-3">
-                <Text className="text-primary font-semibold text-sm">Cleanliness</Text>
-              </View>
-              <RatingStars size="sm" value={cleanliness} onChange={setCleanliness} />
-            </View>
-
-            <View className="flex-row items-center py-3">
-              <View className="w-10 h-10 rounded-full bg-gray-100 items-center justify-center">
-                <Ionicons name="chatbubble-outline" size={20} color="#7B8387" />
-              </View>
-              <View className="flex-1 ml-3">
-                <Text className="text-primary font-semibold text-sm">Communication</Text>
-              </View>
-              <RatingStars size="sm" value={communication} onChange={setCommunication} />
-            </View>
-          </View>
-
-          {rating > 0 && (
-            <Input
-              placeholder="Leave a comment (optional)"
-              value={comment}
-              onChangeText={setComment}
-              multiline
-              className="w-full mb-4"
+      <View className="items-center mt-6">
+        <View
+          className="w-[88px] h-[88px] rounded-full border-[3px] border-white items-center justify-center bg-gray-200"
+          style={{
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 2 },
+            shadowOpacity: 0.15,
+            shadowRadius: 6,
+            elevation: 4,
+          }}
+        >
+          {ride?.driver?.avatar ? (
+            <Image
+              source={{ uri: ride.driver.avatar }}
+              className="w-full h-full rounded-full"
             />
+          ) : (
+            <Text className="text-primary font-bold text-2xl">{initials}</Text>
           )}
         </View>
+        <Text className="text-primary font-bold text-xl mt-3">{ride?.driver?.name}</Text>
+        <Text className="text-secondary text-sm mt-1">
+          How was your journey with {driverName} today?
+        </Text>
+      </View>
 
-        <Button variant="accent" fullWidth onPress={handleDone} disabled={rating === 0} loading={submitting}>
+      <View className="flex-row bg-white rounded-2xl mx-4 mt-4 py-4">
+        <View className="flex-1 items-center">
+          <Text className="text-secondary text-xs uppercase tracking-wider">Distance</Text>
+          <Text className="text-primary font-bold text-base mt-1">
+            {distanceKm != null ? `${distanceKm.toFixed(1)} km` : '—'}
+          </Text>
+        </View>
+        <View className="w-px self-stretch bg-gray-200 mx-2" />
+        <View className="flex-1 items-center">
+          <Text className="text-secondary text-xs uppercase tracking-wider">Time</Text>
+          <Text className="text-primary font-bold text-base mt-1">
+            {ride?.duration != null ? `${ride.duration} min` : '—'}
+          </Text>
+        </View>
+        <View className="w-px self-stretch bg-gray-200 mx-2" />
+        <View className="flex-1 items-center">
+          <Text className="text-secondary text-xs uppercase tracking-wider">Fare</Text>
+          <Text className="text-accent font-bold text-base mt-1">
+            {ride?.fare != null ? `K${ride.fare.toFixed(2)}` : '—'}
+          </Text>
+        </View>
+      </View>
+
+      <View className="bg-white rounded-2xl mx-4 mt-3 py-4 items-center">
+        <Text className="text-secondary text-xs uppercase tracking-widest mb-3">
+          Overall Rating
+        </Text>
+        <RatingStars size="lg" value={rating} onChange={setRating} />
+      </View>
+
+      <View className="mx-4 mt-3 gap-3">
+        <View className="px-4 py-4 flex-row items-center bg-white rounded-2xl">
+          <View className="w-10 h-10 rounded-full bg-orange-50 items-center justify-center">
+            <Ionicons name="time-outline" size={20} color="#FE5035" />
+          </View>
+          <View className="flex-1 ml-3">
+            <Text className="text-primary font-semibold text-sm">Driving Skill</Text>
+          </View>
+          <RatingStars size="sm" value={drivingSkill} onChange={setDrivingSkill} />
+        </View>
+
+        <View className="px-4 py-4 flex-row items-center bg-white rounded-2xl">
+          <View className="w-10 h-10 rounded-full bg-orange-50 items-center justify-center">
+            <Ionicons name="sparkles-outline" size={20} color="#FE5035" />
+          </View>
+          <View className="flex-1 ml-3">
+            <Text className="text-primary font-semibold text-sm">Cleanliness</Text>
+          </View>
+          <RatingStars size="sm" value={cleanliness} onChange={setCleanliness} />
+        </View>
+
+        <View className="px-4 py-4 flex-row items-center bg-white rounded-2xl">
+          <View className="w-10 h-10 rounded-full bg-gray-100 items-center justify-center">
+            <Ionicons name="chatbubble-outline" size={20} color="#26344F" />
+          </View>
+          <View className="flex-1 ml-3">
+            <Text className="text-primary font-semibold text-sm">Communication</Text>
+          </View>
+          <RatingStars size="sm" value={communication} onChange={setCommunication} />
+        </View>
+      </View>
+
+      <View className="mx-4 mt-6 mb-4">
+        <Button
+          variant="accent"
+          fullWidth
+          className="rounded-2xl"
+          onPress={handleDone}
+          disabled={rating === 0}
+          loading={submitting}
+        >
           Submit Feedback
         </Button>
-        <Button variant="ghost" fullWidth className="mt-2" onPress={handleDone} disabled={submitting}>
+        <Text
+          className="text-secondary text-sm text-center mt-3"
+          onPress={submitting ? undefined : handleDone}
+        >
           Skip
-        </Button>
-      </Card>
-    </SafeAreaView>
+        </Text>
+      </View>
+    </ScrollView>
   );
 }
