@@ -3,7 +3,7 @@ import { useDriverStore } from '@/state';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { ScrollView, Text, View } from 'react-native';
+import { Pressable, ScrollView, Text, View } from 'react-native';
 
 /**
  * Post-trip rating screen shown to the driver, reached from
@@ -155,9 +155,14 @@ export default function DriverRatingScreen() {
         >
           Submit Rating
         </Button>
-        <Text className="text-secondary text-sm text-center mt-3" onPress={handleSkip}>
-          Skip for now
-        </Text>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Skip rating"
+          onPress={handleSkip}
+          className="mt-3 items-center justify-center py-2"
+        >
+          <Text className="text-secondary text-sm text-center">Skip for now</Text>
+        </Pressable>
       </View>
     </ScrollView>
   );

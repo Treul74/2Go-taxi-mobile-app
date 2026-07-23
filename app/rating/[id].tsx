@@ -26,12 +26,16 @@ export default function RatingScreen() {
 
   const ride = rideHistory.find((r) => r.id === id);
 
-  const handleDone = async () => {
+  const handleSubmit = async () => {
     if (id && rating > 0) {
       setSubmitting(true);
       await rateRide(id, rating, comment.trim() || undefined);
       setSubmitting(false);
     }
+    router.replace('/discover');
+  };
+
+  const handleSkip = () => {
     router.replace('/discover');
   };
 
@@ -154,7 +158,7 @@ export default function RatingScreen() {
           variant="accent"
           fullWidth
           className="rounded-2xl"
-          onPress={handleDone}
+          onPress={handleSubmit}
           disabled={rating === 0}
           loading={submitting}
         >
@@ -162,7 +166,9 @@ export default function RatingScreen() {
         </Button>
         <Text
           className="text-secondary text-sm text-center mt-3"
-          onPress={submitting ? undefined : handleDone}
+          accessibilityRole="button"
+          accessibilityLabel="Skip rating"
+          onPress={submitting ? undefined : handleSkip}
         >
           Skip
         </Text>
