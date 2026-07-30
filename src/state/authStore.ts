@@ -32,6 +32,12 @@ interface AuthState {
     completeOnboarding: () => Promise<void>;
     setAuthed: (authed: boolean, refreshToken?: string, userId?: string) => Promise<void>;
     resetOnboarding: () => Promise<void>;
+    // Redeems the stored refresh token again to mint a fresh access token,
+    // for the access-token-expired-mid-session case (hydrate() only runs
+    // once, at launch — a long trip can easily outlast the access token's
+    // TTL, e.g. the driver-rating/customer-rating submission at trip end).
+    // Returns whether the session is still valid.
+    refreshSession: () => Promise<boolean>;
 }
 
 export const useAuthStore = create<AuthState>((set) => ({
@@ -99,5 +105,23 @@ export const useAuthStore = create<AuthState>((set) => ({
     resetOnboarding: async () => {
         await AsyncStorage.multiRemove([ONBOARDING_KEY, AUTH_KEY, REFRESH_TOKEN_KEY]);
         set({ onboardingComplete: false, hasLoggedInBefore: false, authed: false, authUserId: null });
+    },
+
+    refreshSession: async () => {
+        const storedRefreshToken = await AsyncStorage.getItem(REFRESH_TOKEN_KEY);
+        if (!storedRefreshToken) return false;
+
+        const { data, error } = await refreshSessionAndSyncAccessToken(storedRefreshToken);
+        if (error || !data?.user?.id) {
+            await AsyncStorage.multiRemove([AUTH_KEY, REFRESH_TOKEN_KEY]);
+            set({ authed: false, authUserId: null });
+            return false;
+        }
+
+        if (data.refreshToken) {
+            await AsyncStorage.setItem(REFRESH_TOKEN_KEY, data.refreshToken);
+        }
+        set({ authed: true, authUserId: data.user.id });
+        return true;
     },
 }));

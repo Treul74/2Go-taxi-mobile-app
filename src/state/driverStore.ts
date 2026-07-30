@@ -13,9 +13,9 @@ import { setDriverStatus } from '@/services/accounts';
 import { submitDriverRating } from '@/services/ratings';
 import { sendPushNotification } from '@/lib/notifications';
 import { useAuthStore } from '@/state/authStore';
-import { useDriverWalletStore, type TripReceipt } from '@/state/driverWalletStore';
+import { useDriverWalletStore } from '@/state/driverWalletStore';
 import { useUserStore } from '@/state/userStore';
-import type { DriverStats, IncomingRequest, TripSummary, VehicleType } from '@/types';
+import type { DriverStats, IncomingRequest, TripCompletionInput, TripSummary, VehicleType } from '@/types';
 import { create } from 'zustand';
 
 // Intervals outside of store to avoid type issues with Node vs Browser types
@@ -78,7 +78,7 @@ interface DriverState {
   confirmArrival: () => Promise<boolean>;
   startTrip: () => void;
   beginTrip: () => Promise<boolean>;
-  completeTrip: (receiptData: Omit<TripReceipt, 'id' | 'timestamp'>) => Promise<boolean>;
+  completeTrip: (receiptData: TripCompletionInput) => Promise<boolean>;
   finishTrip: () => void;
   cancelTrip: () => void;
   ratePassenger: (
@@ -399,19 +399,23 @@ export const useDriverStore = create<DriverState>((set, get) => ({
     return true;
   },
 
-  // Slide to Complete Trip: persists status='completed' + the final
-  // calculated fare_amount. completed_at and the wallet credit/service-fee
-  // ledger are entirely server-side (see the trip-completion migration).
-  // currentTrip is deliberately left set on success so the trip screen can
-  // navigate to the summary screen without racing its own "no active trip"
-  // redirect -- finishTrip() clears it once the driver leaves the summary.
+  // Slide to Complete Trip: persists status='completed' + the actual trip
+  // facts (distance driven, waiting time, completion timestamp). The final
+  // fare_amount, service_fee_amount, and driver_earnings are entirely
+  // server-computed (see the trip-completion migration) -- this app never
+  // calculates or sends a fare. currentTrip is deliberately left set on
+  // success so the trip screen can navigate to the summary screen without
+  // racing its own "no active trip" redirect -- finishTrip() clears it once
+  // the driver leaves the summary.
   completeTrip: async (receiptData) => {
     const { currentTrip } = get();
     if (!currentTrip) return false;
 
     const { totals, errorMessage, customerPushToken } = await completeOrderTrip(
       currentTrip.id,
-      receiptData.totalFare
+      receiptData.distance,
+      receiptData.waitingDuration,
+      receiptData.completedAt
     );
     if (errorMessage || !totals) {
       console.error('Failed to complete trip:', errorMessage);

@@ -191,16 +191,22 @@ export interface CompletedOrderTotals {
 }
 
 /**
- * Completes an in-progress order with the final calculated fare. completed_at
- * is server-stamped and the driver's wallet is credited automatically by a
- * trigger (see migrations/20260709075443_add-driver-wallet-ledger-and-trip-completion.sql)
- * -- this call only needs to flip status and set the final fare_amount. Also
- * returns the customer's push token so the caller can notify them the trip
- * is complete.
+ * Completes an in-progress order by reporting trip facts only -- the app no
+ * longer calculates or sends a fare. The server (handle_order_completion(),
+ * see migrations/20260726060000_server-side-fare-at-trip-completion.sql)
+ * derives duration from its own trip_started_at/completed_at, computes the
+ * final fare via calculate_fare_breakdown(), and stamps fare_amount,
+ * service_fee_amount, and driver_earnings before this call's .select() reads
+ * them back. completedAt is sent for completeness but the trigger always
+ * overwrites completed_at with its own now() -- it has no effect on the
+ * computed fare. Also returns the customer's push token so the caller can
+ * notify them the trip is complete.
  */
 export async function completeOrderTrip(
   orderId: string,
-  fareAmount: number
+  actualDistanceKm: number,
+  actualWaitingMinutes: number,
+  completedAt: string
 ): Promise<{
   totals: CompletedOrderTotals | null;
   errorMessage: string | null;
@@ -208,13 +214,19 @@ export async function completeOrderTrip(
 }> {
   const { data, error } = await insforge.database
     .from('orders')
-    .update({ status: 'completed', fare_amount: fareAmount })
+    .update({
+      status: 'completed',
+      actual_distance_km: actualDistanceKm,
+      actual_waiting_minutes: actualWaitingMinutes,
+      completed_at: completedAt,
+    })
     .eq('id', orderId)
     .eq('status', 'in_progress')
-    .select('fare_amount, service_fee_amount, customers(push_token)')
+    .select('fare_amount, service_fee_amount, driver_earnings, customers(push_token)')
     .single<{
       fare_amount: number | string;
       service_fee_amount: number | string | null;
+      driver_earnings: number | string | null;
       customers: { push_token: string | null } | null;
     }>();
 
@@ -228,8 +240,9 @@ export async function completeOrderTrip(
 
   const fare = Number(data.fare_amount) || 0;
   const serviceFee = Number(data.service_fee_amount) || 0;
+  const netEarnings = Number(data.driver_earnings) || 0;
   return {
-    totals: { fareAmount: fare, serviceFeeAmount: serviceFee, netEarnings: fare - serviceFee },
+    totals: { fareAmount: fare, serviceFeeAmount: serviceFee, netEarnings },
     errorMessage: null,
     customerPushToken: data.customers?.push_token ?? null,
   };

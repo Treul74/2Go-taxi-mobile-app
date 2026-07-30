@@ -46,8 +46,8 @@ export interface CreateOrderInput {
   dropoff: Location;
   vehicleType: VehicleType;
   paymentMethod: PaymentMethod;
-  baseFare: number;
-  fareAmount: number;
+  distanceKm: number;
+  durationMinutes: number;
 }
 
 export interface CreatedOrder {
@@ -90,8 +90,8 @@ export async function createOrder(
         dropoff_lng: input.dropoff.longitude,
         vehicle_type: input.vehicleType,
         payment_method: input.paymentMethod,
-        base_fare: input.baseFare,
-        fare_amount: input.fareAmount,
+        trip_distance_km: input.distanceKm,
+        trip_duration_minutes: Math.round(input.durationMinutes),
         expires_at: expiresAt,
       },
     ])

@@ -1,16 +1,21 @@
-import { Map } from '@/components/map';
-import { Card, RideActionSlider } from '@/components/ui';
+import { CompassButton, Map } from '@/components/map';
+import { RideActionSlider } from '@/components/ui';
 import { useDriverTelemetryPing } from '@/hooks';
-import { calculateDistanceKm } from '@/lib/distance';
-import { calculateFare } from '@/lib/fareCalculator';
-import { getDirections } from '@/lib/google/mapsApi';
+import { useTurnPreview } from '@/hooks/useTurnPreview';
+import { calculateDistanceKm, calculateDistanceMeters, formatManeuverDistance } from '@/lib/distance';
+import { getDirections, type DirectionStep } from '@/lib/google/mapsApi';
+import { getManeuverIconName } from '@/lib/maneuverIcon';
+import { calculateBearing } from '@/lib/routeSnapping';
 import { useDriverStore } from '@/state';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
-import React, { useEffect, useRef, useState } from 'react';
-import { Alert, Linking, Pressable, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Alert, Animated, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+const CARD_COLLAPSED_HEIGHT = 180;
+const CARD_EXPANDED_HEIGHT = 420;
 
 /**
  * Driver Trip Screen
@@ -27,17 +32,36 @@ export default function DriverTripScreen() {
         completeTrip,
         currentLocation,
         updateLocation,
+        vehicleType,
     } = useDriverStore();
 
     const [driverLocation, setDriverLocation] = useState<{ latitude: number; longitude: number } | null>(
         currentLocation
     );
     const [driverHeading, setDriverHeading] = useState<number>(0);
+    const [currentSpeed, setCurrentSpeed] = useState(0);
     const [elapsedTime, setElapsedTime] = useState(0);
     const [routeCoordinates, setRouteCoordinates] = useState<Array<{ latitude: number; longitude: number }>>([]);
     const [isAutoFollow, setIsAutoFollow] = useState(true);
     const [lastInteraction, setLastInteraction] = useState(0);
+    const [isExpanded, setIsExpanded] = useState(false);
+    const [routeSteps, setRouteSteps] = useState<DirectionStep[]>([]);
+    const [activeStepIndex, setActiveStepIndex] = useState(0);
+    const [distanceToManeuverMeters, setDistanceToManeuverMeters] = useState<number | null>(null);
     const mapRef = useRef<any>(null);
+    const insets = useSafeAreaInsets();
+    const overlayAnim = useRef(new Animated.Value(CARD_COLLAPSED_HEIGHT + 16)).current;
+
+    // Slides the navigation-arrow / speed overlays up as the trip card
+    // expands, so they never end up hidden behind (or overlapping) it.
+    useEffect(() => {
+        Animated.spring(overlayAnim, {
+            toValue: isExpanded ? CARD_EXPANDED_HEIGHT + 16 : CARD_COLLAPSED_HEIGHT + 16,
+            useNativeDriver: false,
+            friction: 8,
+            tension: 40,
+        }).start();
+    }, [isExpanded]);
 
     // Actual GPS distance travelled so far this trip (accumulated from
     // consecutive location fixes below), used only for the final fare
@@ -134,6 +158,9 @@ export default function DriverTripScreen() {
                         if (location.coords.heading !== null) {
                             setDriverHeading(location.coords.heading);
                         }
+                        if (location.coords.speed !== null && location.coords.speed >= 0) {
+                            setCurrentSpeed(Math.round(location.coords.speed * 3.6));
+                        }
                     }
                 );
             } catch {
@@ -162,11 +189,40 @@ export default function DriverTripScreen() {
             );
             if (!route || cancelled) return;
             setRouteCoordinates(route.coordinates);
+            setRouteSteps(route.steps);
+            setActiveStepIndex(0);
         })();
         return () => {
             cancelled = true;
         };
     }, [driverLocation?.latitude, driverLocation?.longitude, currentTrip?.destination?.latitude, currentTrip?.destination?.longitude]);
+
+    // TBT step advance — also tracks live distance to the upcoming maneuver
+    // for the turn preview pulse/color escalation, matching app/(tabs)/navigate.tsx.
+    useEffect(() => {
+        if (!driverLocation || routeSteps.length === 0) {
+            setDistanceToManeuverMeters(null);
+            return;
+        }
+        const step = routeSteps[activeStepIndex];
+        if (!step) {
+            setDistanceToManeuverMeters(null);
+            return;
+        }
+
+        const dist = calculateDistanceMeters(
+            driverLocation.latitude,
+            driverLocation.longitude,
+            step.endLocation.latitude,
+            step.endLocation.longitude
+        );
+
+        setDistanceToManeuverMeters(dist);
+
+        if (dist < 25 && activeStepIndex < routeSteps.length - 1) {
+            setActiveStepIndex((prev) => prev + 1);
+        }
+    }, [driverLocation, routeSteps, activeStepIndex]);
 
     // Auto-follow logic: resumes following after 5 seconds of no interaction
     useEffect(() => {
@@ -186,22 +242,34 @@ export default function DriverTripScreen() {
         setLastInteraction(Date.now());
     };
 
-    // Camera follow mode during trip
+    // Camera follow mode during trip — heading-up, with a bearing-toward-next-maneuver
+    // fallback for stationary/low-speed GPS fixes (heading unreliable near 0),
+    // matching the pattern in app/(tabs)/navigate.tsx.
     useEffect(() => {
         if (!driverLocation || !isAutoFollow) return;
         if (mapRef.current?.animateCamera) {
+            const nextStep = routeSteps[activeStepIndex];
+            const cameraHeading = (driverHeading && driverHeading > 1)
+                ? driverHeading
+                : nextStep
+                    ? calculateBearing(
+                        { latitude: driverLocation.latitude, longitude: driverLocation.longitude },
+                        { latitude: nextStep.endLocation.latitude, longitude: nextStep.endLocation.longitude }
+                    )
+                    : driverHeading;
+
             mapRef.current.animateCamera({
                 center: {
                     latitude: driverLocation.latitude,
                     longitude: driverLocation.longitude,
                 },
-                heading: driverHeading || 0,
+                heading: cameraHeading || 0,
                 pitch: 45,
                 altitude: 500,
                 zoom: 17,
             }, 700);
         }
-    }, [driverLocation?.latitude, driverLocation?.longitude, driverHeading, isAutoFollow]);
+    }, [driverLocation?.latitude, driverLocation?.longitude, driverHeading, isAutoFollow, routeSteps, activeStepIndex]);
 
     // Timer
     useEffect(() => {
@@ -224,34 +292,36 @@ export default function DriverTripScreen() {
         }
     }, [currentTrip]);
 
-    if (!currentTrip) {
+    const distance = driverLocation && currentTrip
+        ? calculateDistanceKm(driverLocation.latitude, driverLocation.longitude, currentTrip.destination.latitude, currentTrip.destination.longitude).toFixed(1)
+        : '...';
+
+    const arrivalTime = useMemo(() => {
+        const mins = Math.ceil(parseFloat(distance) * 2);
+        const arrival = new Date(Date.now() + mins * 60000);
+        return arrival.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }, [distance]);
+
+    const { pulseScale: turnPulseScale, color: turnDistanceColor } = useTurnPreview(distanceToManeuverMeters);
+
+    if (!currentTrip || !vehicleType) {
         return null;
     }
 
     const handleSliderComplete = async () => {
-        // Prepare final receipt data — the actual distance driven this trip,
+        // Report actual trip facts only — the app no longer calculates a
+        // fare. distanceKm is the real GPS-tracked distance driven this trip,
         // not the remaining distance to the destination.
         const distanceKm = distanceTraveledRef.current;
         const durationMin = Math.ceil(elapsedTime / 60);
         const waitingMin = Math.ceil(waitingDuration / 60);
 
-        const fareData = calculateFare(distanceKm, durationMin, waitingMin);
-
         const receiptData = {
-            tripId: currentTrip.id,
             passengerName: currentTrip.passengerName,
-            pickupAddress: currentTrip.pickup.address,
-            destinationAddress: currentTrip.destination.address,
             distance: distanceKm,
             duration: durationMin,
             waitingDuration: waitingMin,
-            totalFare: fareData.total,
-            breakdown: {
-                baseFare: fareData.baseFare,
-                distanceFare: fareData.distanceFare,
-                timeFare: fareData.timeFare,
-                waitingFare: fareData.waitingFare,
-            }
+            completedAt: new Date().toISOString(),
         };
 
         const success = await completeTrip(receiptData);
@@ -284,9 +354,8 @@ export default function DriverTripScreen() {
         return `${mins}:${secs.toString().padStart(2, '0')}`;
     };
 
-    const distance = driverLocation
-        ? calculateDistanceKm(driverLocation.latitude, driverLocation.longitude, currentTrip.destination.latitude, currentTrip.destination.longitude).toFixed(1)
-        : '...';
+    const currentStep = routeSteps[activeStepIndex];
+    const nextManeuverIcon = getManeuverIconName(currentStep?.maneuver);
 
     return (
         <View className="flex-1 bg-background">
@@ -296,6 +365,7 @@ export default function DriverTripScreen() {
                     ref={mapRef}
                     driverLocation={driverLocation || undefined}
                     driverHeading={driverHeading}
+                    navigationArrowMode={true}
                     destination={currentTrip.destination}
                     showRoute={routeCoordinates.length > 0}
                     routeCoordinates={routeCoordinates}
@@ -306,91 +376,440 @@ export default function DriverTripScreen() {
                     onRegionChangeComplete={handleMapAction}
                     eta={`${Math.ceil(parseFloat(distance) * 2)} min ETA`} // Approximation or use real route ETA if available
                     showZoomControls={true}
+                    mapPadding={{ top: 0, right: 0, bottom: 200, left: 0 }}
                 />
             </View>
 
-            <SafeAreaView className="flex-1" edges={['top', 'bottom']} pointerEvents="box-none">
-                {/* Top navigation bar with passenger info and call button */}
-                <View className="px-5 pt-4 pb-2" pointerEvents="auto">
-                    <View className="bg-white/95 rounded-3xl px-5 py-3 shadow-card border border-white/20 flex-row items-center justify-between">
-                        <View className="flex-row items-center flex-1">
-                            <View className="w-10 h-10 rounded-full bg-accent/10 items-center justify-center mr-3">
-                                <Ionicons name="person" size={20} color="#FE5035" />
+            {/* Next turn HUD — top-left, shown once route steps are available */}
+            {routeSteps.length > 0 && (
+                <View
+                    style={{
+                        position: 'absolute',
+                        top: insets.top + 8,
+                        left: 16,
+                        right: 16,
+                        zIndex: 20,
+                    }}
+                >
+                    <View
+                        style={{
+                            backgroundColor: 'white',
+                            borderRadius: 16,
+                            padding: 12,
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            shadowColor: '#000',
+                            shadowOffset: { width: 0, height: 2 },
+                            shadowOpacity: 0.15,
+                            shadowRadius: 8,
+                            elevation: 8,
+                        }}
+                    >
+                        <Animated.View
+                            style={{
+                                width: 40,
+                                height: 40,
+                                borderRadius: 20,
+                                backgroundColor: '#F3F4F6',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                marginRight: 12,
+                                transform: [{ scale: turnPulseScale }],
+                            }}
+                        >
+                            <Ionicons name={nextManeuverIcon} size={20} color="#26344F" />
+                        </Animated.View>
+                        <View style={{ flex: 1 }}>
+                            <Text style={{ color: '#7B8387', fontSize: 10, marginBottom: 2 }}>
+                                NEXT TURN
+                            </Text>
+                            <Text
+                                style={{ color: '#26344F', fontWeight: 'bold', fontSize: 15 }}
+                                numberOfLines={1}
+                            >
+                                {currentStep ? currentStep.instruction.replace(/<[^>]*>/g, '') : ''}
+                            </Text>
+                        </View>
+                        <View style={{ alignItems: 'flex-end' }}>
+                            <Text style={{ color: '#7B8387', fontSize: 10 }}>IN</Text>
+                            <Text style={{ fontWeight: 'bold', fontSize: 18, color: turnDistanceColor }}>
+                                {distanceToManeuverMeters !== null ? formatManeuverDistance(distanceToManeuverMeters) : '--'}
+                            </Text>
+                        </View>
+                    </View>
+                </View>
+            )}
+
+            {/* Compass button overlay — below zoom controls, resets camera to north-up */}
+            <View
+                pointerEvents="auto"
+                style={{
+                    position: 'absolute',
+                    right: 16,
+                    top: 160,
+                    zIndex: 10,
+                }}
+            >
+                <CompassButton
+                    heading={driverHeading}
+                    onPress={() => mapRef.current?.animateCamera?.({ heading: 0 }, 700)}
+                />
+            </View>
+
+            {/* Speed display + speed limit overlay — bottom-left, above the trip card */}
+            <Animated.View
+                pointerEvents="none"
+                style={{
+                    position: 'absolute',
+                    left: 16,
+                    bottom: Animated.add(overlayAnim, 20),
+                    zIndex: 10,
+                }}
+            >
+                <View
+                    style={{
+                        width: 64,
+                        height: 64,
+                        borderRadius: 32,
+                        backgroundColor: 'white',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        borderWidth: 3,
+                        borderColor: '#FE5035',
+                        shadowColor: '#000',
+                        shadowOffset: { width: 0, height: 2 },
+                        shadowOpacity: 0.2,
+                        shadowRadius: 4,
+                        elevation: 5,
+                        marginBottom: 8,
+                    }}
+                >
+                    <Text className="text-primary font-bold text-2xl">
+                        {currentSpeed}
+                    </Text>
+                    <Text className="text-secondary text-xs">km/h</Text>
+                </View>
+
+                <View
+                    style={{
+                        width: 64,
+                        borderRadius: 12,
+                        backgroundColor: 'white',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        paddingVertical: 4,
+                        borderWidth: 2,
+                        borderColor: '#EF4444',
+                        shadowColor: '#000',
+                        shadowOffset: { width: 0, height: 2 },
+                        shadowOpacity: 0.15,
+                        shadowRadius: 3,
+                        elevation: 4,
+                    }}
+                >
+                    <Text style={{ color: '#EF4444', fontWeight: 'bold', fontSize: 14 }}>
+                        60
+                    </Text>
+                    <Text className="text-secondary text-xs">LIMIT</Text>
+                </View>
+            </Animated.View>
+
+            {/* Bottom trip card — collapsed shows stats only, expanded adds passenger/pickup/dropoff/fare */}
+            <View style={[styles.card, { paddingBottom: insets.bottom || 16 }]}>
+                {/* Drag handle pill */}
+                <View style={styles.dragHandleWrap}>
+                    <View style={styles.dragHandle} />
+                </View>
+
+                {/* Stats row — always visible */}
+                <View style={styles.statsRow}>
+                    <View style={styles.statItem}>
+                        <Ionicons name="repeat-outline" size={20} color="#7B8387" />
+                        <Text style={styles.statValue}>{distance} km</Text>
+                        <Text style={styles.statLabel}>Distance</Text>
+                    </View>
+
+                    <View style={styles.statItem}>
+                        <Ionicons name="time-outline" size={20} color="#7B8387" />
+                        <Text style={styles.statValue}>{arrivalTime}</Text>
+                        <Text style={styles.statLabel}>Arrival</Text>
+                    </View>
+
+                    <View style={styles.statItem}>
+                        <Ionicons name="stopwatch-outline" size={20} color="#7B8387" />
+                        <Text style={styles.statValue}>{formatTime(elapsedTime)}</Text>
+                        <Text style={styles.statLabel}>Duration</Text>
+                    </View>
+
+                    <Pressable onPress={() => setIsExpanded((prev) => !prev)} style={styles.expandToggle}>
+                        <Ionicons name={isExpanded ? 'chevron-down' : 'chevron-up'} size={20} color="#26344F" />
+                    </Pressable>
+                </View>
+
+                {/* Expanded content — passenger info, pickup/dropoff, fare */}
+                {isExpanded && (
+                    <View style={styles.expandedContent}>
+                        {/* Passenger row */}
+                        <View style={styles.passengerRow}>
+                            <View style={styles.avatar}>
+                                <Ionicons name="person" size={28} color="#7B8387" />
                             </View>
-                            <View className="flex-1">
-                                <Text className="text-primary font-bold" numberOfLines={1}>
-                                    {currentTrip.passengerName}
-                                </Text>
-                                <Text className="text-secondary text-xs">
-                                    Trip in progress
-                                </Text>
+
+                            <View style={{ flex: 1 }}>
+                                <Text style={styles.passengerName}>{currentTrip.passengerName}</Text>
+                                <View style={styles.ratingRow}>
+                                    <Ionicons name="star" size={12} color="#FFB800" />
+                                    <Text style={styles.ratingText}>{currentTrip.passengerRating ?? '5.0'}</Text>
+                                </View>
+                            </View>
+
+                            <View style={styles.actionButtons}>
+                                <View style={styles.actionButtonWrap}>
+                                    <Pressable onPress={handleCallPassenger} style={styles.actionButton}>
+                                        <Ionicons name="call" size={20} color="#26344F" />
+                                    </Pressable>
+                                    <Text style={styles.actionButtonLabel}>Call</Text>
+                                </View>
+
+                                <View style={styles.actionButtonWrap}>
+                                    <Pressable onPress={handleChatPassenger} style={styles.actionButton}>
+                                        <Ionicons name="chatbubble" size={20} color="#26344F" />
+                                    </Pressable>
+                                    <Text style={styles.actionButtonLabel}>Chat</Text>
+                                </View>
+
+                                <View style={styles.actionButtonWrap}>
+                                    <Pressable onPress={() => { }} style={styles.actionButton}>
+                                        <Ionicons name="ellipsis-vertical" size={20} color="#26344F" />
+                                    </Pressable>
+                                    <Text style={styles.actionButtonLabel}>More</Text>
+                                </View>
                             </View>
                         </View>
-                        <Pressable
-                            onPress={handleChatPassenger}
-                            className="w-10 h-10 rounded-full bg-gray-100 items-center justify-center ml-2"
-                        >
-                            <Ionicons name="chatbubble" size={20} color="#26344F" />
-                        </Pressable>
-                        <Pressable
-                            onPress={handleCallPassenger}
-                            className="w-10 h-10 rounded-full bg-success items-center justify-center ml-2"
-                        >
-                            <Ionicons name="call" size={20} color="#FFFFFF" />
-                        </Pressable>
-                    </View>
-                </View>
 
-                {/* Bottom trip info card */}
-                <View className="flex-1 justify-end px-5 pb-4" pointerEvents="box-none">
-                    <View pointerEvents="auto">
-                        <Card variant="default" className="mb-4">
-                            {/* Trip Timer */}
-                            <View className="items-center py-4 mb-4 border-b border-gray-100">
-                                <Text className="text-secondary text-sm mb-2">TRIP DURATION</Text>
-                                <Text className="text-primary font-bold text-4xl">
-                                    {formatTime(elapsedTime)}
+                        {/* Pickup row */}
+                        <View style={styles.locationRow}>
+                            <View style={styles.locationDotColumn}>
+                                <View style={styles.pickupDot} />
+                                <View style={styles.locationConnector} />
+                            </View>
+                            <View style={{ flex: 1 }}>
+                                <Text style={styles.locationAddress}>
+                                    {currentTrip.pickup?.address ?? 'Current location'}
                                 </Text>
+                                <Text style={styles.locationLabel}>Pickup</Text>
+                            </View>
+                        </View>
+
+                        {/* Dropoff row */}
+                        <View style={[styles.locationRow, { marginBottom: 16 }]}>
+                            <View style={{ marginRight: 12, marginTop: 4 }}>
+                                <View style={styles.dropoffDot} />
+                            </View>
+                            <View style={{ flex: 1 }}>
+                                <Text style={styles.locationAddress}>{currentTrip.destination.address}</Text>
+                                <Text style={styles.locationLabel}>Drop-off</Text>
                             </View>
 
-                            {/* Destination */}
-                            <View className="flex-row items-start mb-4 pb-4 border-b border-gray-100">
-                                <View className="w-6 items-center pt-1">
-                                    <View className="w-3 h-3 rounded-full bg-accent border-2 border-white shadow-sm" />
+                            {/* Fare pill */}
+                            <View style={styles.farePill}>
+                                <View style={styles.fareMethodRow}>
+                                    <Ionicons name="cash-outline" size={14} color="#7B8387" />
+                                    <Text style={styles.fareMethodText}>Cash</Text>
                                 </View>
-                                <View className="ml-3 flex-1">
-                                    <Text className="text-secondary text-xs mb-1">DESTINATION</Text>
-                                    <Text className="text-primary font-medium">
-                                        {currentTrip.destination.address}
-                                    </Text>
-                                </View>
+                                <Text style={styles.fareAmount}>K{currentTrip.estimatedFare}</Text>
                             </View>
-
-                            {/* Trip Stats */}
-                            <View className="flex-row items-center justify-between mb-4">
-                                <View className="flex-1 items-center">
-                                    <Ionicons name="navigate" size={24} color="#7B8387" />
-                                    <Text className="text-secondary text-xs mt-1">Distance</Text>
-                                    <Text className="text-primary font-bold">{distance} km</Text>
-                                </View>
-                                <View className="w-px h-12 bg-gray-200" />
-                                <View className="flex-1 items-center">
-                                    <Ionicons name="cash-outline" size={24} color="#10B981" />
-                                    <Text className="text-secondary text-xs mt-1">Estimated fare</Text>
-                                    <Text className="text-success font-bold">K{currentTrip.estimatedFare}</Text>
-                                </View>
-                            </View>
-
-                            {/* Complete Trip Button */}
-                            {/* Complete Trip Slider */}
-                            <RideActionSlider
-                                label="Slide to Complete Trip"
-                                onComplete={handleSliderComplete}
-                            />
-                        </Card>
+                        </View>
                     </View>
+                )}
+
+                {/* Slide to complete — always visible */}
+                <View style={styles.sliderWrap}>
+                    <RideActionSlider
+                        label="SLIDE TO COMPLETE TRIP"
+                        onComplete={handleSliderComplete}
+                    />
                 </View>
-            </SafeAreaView>
+            </View>
         </View>
     );
 }
+
+const styles = StyleSheet.create({
+    card: {
+        position: 'absolute',
+        bottom: 0,
+        left: 0,
+        right: 0,
+        backgroundColor: 'white',
+        borderTopLeftRadius: 28,
+        borderTopRightRadius: 28,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: -4 },
+        shadowOpacity: 0.12,
+        shadowRadius: 16,
+        elevation: 20,
+    },
+    dragHandleWrap: {
+        alignItems: 'center',
+        paddingTop: 10,
+        paddingBottom: 4,
+    },
+    dragHandle: {
+        width: 40,
+        height: 4,
+        borderRadius: 2,
+        backgroundColor: '#E5E7EB',
+    },
+    statsRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingHorizontal: 24,
+        paddingVertical: 12,
+    },
+    statItem: {
+        alignItems: 'center',
+    },
+    statValue: {
+        color: '#26344F',
+        fontWeight: 'bold',
+        fontSize: 18,
+        marginTop: 4,
+    },
+    statLabel: {
+        color: '#7B8387',
+        fontSize: 12,
+        marginTop: 2,
+    },
+    expandToggle: {
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        backgroundColor: '#F3F4F6',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    expandedContent: {
+        borderTopWidth: 1,
+        borderTopColor: '#F3F4F6',
+        paddingHorizontal: 20,
+        paddingTop: 16,
+    },
+    passengerRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginBottom: 16,
+    },
+    avatar: {
+        width: 52,
+        height: 52,
+        borderRadius: 26,
+        backgroundColor: '#F3F4F6',
+        alignItems: 'center',
+        justifyContent: 'center',
+        overflow: 'hidden',
+        marginRight: 12,
+    },
+    passengerName: {
+        color: '#26344F',
+        fontWeight: 'bold',
+        fontSize: 16,
+    },
+    ratingRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        marginTop: 2,
+    },
+    ratingText: {
+        color: '#7B8387',
+        fontSize: 12,
+    },
+    actionButtons: {
+        flexDirection: 'row',
+        gap: 8,
+    },
+    actionButtonWrap: {
+        alignItems: 'center',
+    },
+    actionButton: {
+        width: 44,
+        height: 44,
+        borderRadius: 22,
+        backgroundColor: '#F3F4F6',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    actionButtonLabel: {
+        color: '#7B8387',
+        fontSize: 10,
+        marginTop: 2,
+    },
+    locationRow: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        marginBottom: 12,
+    },
+    locationDotColumn: {
+        alignItems: 'center',
+        marginRight: 12,
+        marginTop: 4,
+    },
+    pickupDot: {
+        width: 12,
+        height: 12,
+        borderRadius: 6,
+        backgroundColor: '#00D26A',
+    },
+    locationConnector: {
+        width: 1,
+        height: 24,
+        backgroundColor: '#E5E7EB',
+        marginTop: 2,
+    },
+    dropoffDot: {
+        width: 12,
+        height: 12,
+        borderRadius: 6,
+        backgroundColor: '#FE5035',
+    },
+    locationAddress: {
+        color: '#26344F',
+        fontWeight: '600',
+        fontSize: 14,
+    },
+    locationLabel: {
+        color: '#7B8387',
+        fontSize: 12,
+        marginTop: 2,
+    },
+    farePill: {
+        backgroundColor: '#FFF5F3',
+        borderRadius: 12,
+        paddingHorizontal: 12,
+        paddingVertical: 8,
+        marginLeft: 8,
+        alignItems: 'flex-end',
+    },
+    fareMethodRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+    },
+    fareMethodText: {
+        color: '#7B8387',
+        fontSize: 11,
+    },
+    fareAmount: {
+        color: '#26344F',
+        fontWeight: 'bold',
+        fontSize: 15,
+        marginTop: 2,
+    },
+    sliderWrap: {
+        paddingHorizontal: 16,
+        paddingTop: 8,
+        paddingBottom: 8,
+    },
+});

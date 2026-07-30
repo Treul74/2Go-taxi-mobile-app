@@ -18,7 +18,7 @@ interface RideActionSliderProps {
     isLoading?: boolean;
 }
 
-const CONTAINER_HEIGHT = 56;
+const CONTAINER_HEIGHT = 64;
 const PADDING = 4;
 const THUMB_SIZE = CONTAINER_HEIGHT - PADDING * 2;
 const SCREEN_WIDTH = Dimensions.get('window').width;
@@ -77,15 +77,15 @@ export const RideActionSlider: React.FC<RideActionSliderProps> = ({
     }));
 
     return (
-        <View className="relative w-full h-14 bg-primary rounded-full justify-center overflow-hidden shadow-sm" style={{ opacity: disabled ? 0.6 : 1 }}>
+        <View className="relative w-full h-16 bg-accent rounded-full justify-center overflow-hidden shadow-sm" style={{ opacity: disabled ? 0.6 : 1 }}>
             {/* Label */}
             <Animated.View style={[animatedLabelStyle, { position: 'absolute', width: '100%', alignItems: 'center' }]}>
-                <Text className="text-white font-bold text-lg">{label}</Text>
+                <Text className="text-white font-bold text-base tracking-widest">{label}</Text>
             </Animated.View>
 
             {/* Progress Track (optional visual fill) */}
             <Animated.View
-                className="absolute left-0 top-0 bottom-0 bg-accent/20"
+                className="absolute left-0 top-0 bottom-0 bg-white/20"
                 style={useAnimatedStyle(() => ({
                     width: translateX.value + THUMB_SIZE + PADDING,
                 }))}
@@ -102,7 +102,7 @@ export const RideActionSlider: React.FC<RideActionSliderProps> = ({
                     ) : completed ? (
                         <Ionicons name="checkmark" size={24} color="#10B981" />
                     ) : (
-                        <Ionicons name="arrow-forward" size={24} color="#FE5035" />
+                        <Ionicons name="play-skip-forward" size={22} color="#FE5035" />
                     )}
                 </Animated.View>
             </GestureDetector>

@@ -1,5 +1,5 @@
 import { getHex9 } from '@/core/spatialEngine';
-import { calculateFare, calculateFareForVehicle } from '@/lib/fareCalculator';
+import { vehicleIcons } from '@/features/passenger/components/VehicleCard';
 import { getDistanceMatrix } from '@/lib/google/mapsApi';
 import { sendPushNotification } from '@/lib/notifications';
 import { fetchNearbyDriverPushTokens } from '@/services/driverOrders';
@@ -14,6 +14,8 @@ import {
   type OrderUpdatePayload,
 } from '@/services/orders';
 import { submitRating } from '@/services/ratings';
+import { isWithinServiceArea } from '@/services/serviceAreas';
+import { fetchActiveVehicleClasses } from '@/services/vehicleClasses';
 import { useAuthStore } from '@/state/authStore';
 import type {
   ActiveTrip,
@@ -58,6 +60,10 @@ interface RideState {
   destination: Location | null;
   isPickupManual: boolean;
 
+  // Service-area availability of the current `pickup` (Checkpoint 2 — the
+  // real gate). null = not yet checked for the current pickup.
+  pickupServiceAreaAvailable: boolean | null;
+
   // H3 Spatial Indexing
   passengerHex9: string | null; // Current passenger location hex
 
@@ -89,8 +95,11 @@ interface RideState {
   rideHistory: RideHistoryItem[];
   isLoadingHistory: boolean;
 
-  // Vehicle options with pricing
+  // Vehicle options with pricing, fetched from vehicle_classes_public
   vehicleOptions: VehicleOption[];
+  // Live per-vehicle rates backing calculateVehicleFares(), keyed by
+  // vehicle_type -- populated by fetchVehicleOptions().
+  vehicleRates: Partial<Record<VehicleType, VehicleRateConfig>>;
   isFareCalculating: boolean;
 
   // Actions
@@ -99,6 +108,7 @@ interface RideState {
   setStatus: (status: RideStatus) => void;
   setPaymentMethod: (method: PaymentMethod) => void;
   setPickup: (location: Location | null, manual?: boolean) => void;
+  checkServiceAreaAvailable: (lat: number, lng: number) => Promise<boolean>;
   setDestination: (location: Location | null) => void;
   setRouteData: (
     coords: Array<{ latitude: number; longitude: number }>,
@@ -115,6 +125,7 @@ interface RideState {
   dismissFareReceipt: () => void;
 
   // Complex actions
+  fetchVehicleOptions: () => Promise<void>;
   calculateVehicleFares: () => Promise<void>;
   requestRide: () => Promise<void>;
   applyOrderUpdate: (update: OrderUpdatePayload) => void;
@@ -125,54 +136,17 @@ interface RideState {
   resetRide: () => void;
 }
 
-// Mock vehicle options
-const defaultVehicleOptions: VehicleOption[] = [
-  {
-    id: 'economy',
-    name: 'Economy',
-    description: 'Affordable everyday rides',
-    icon: 'car',
-    estimatedFare: 35,
-    eta: 5,
-    capacity: 4,
-  },
-  {
-    id: 'comfort',
-    name: 'Comfort',
-    description: 'Premium vehicles',
-    icon: 'star',
-    estimatedFare: 65,
-    eta: 7,
-    capacity: 4,
-  },
-  {
-    id: 'bike',
-    name: 'Bike',
-    description: 'Quick solo trips',
-    icon: 'bicycle',
-    estimatedFare: 18,
-    eta: 3,
-    capacity: 1,
-  },
-  {
-    id: 'tricycle',
-    name: 'Tricycle',
-    description: 'For short trips & small loads',
-    icon: 'navigate',
-    estimatedFare: 25,
-    eta: 6,
-    capacity: 3,
-  },
-  {
-    id: 'truck',
-    name: 'Truck',
-    description: 'For cargo & deliveries',
-    icon: 'truck',
-    estimatedFare: 120,
-    eta: 15,
-    capacity: 0, // cargo only
-  },
-];
+// Live per-vehicle rates from vehicle_classes_public, keyed by vehicle_type.
+// Kept separately from VehicleOption (the display-facing shape) since the
+// UI never needs these raw rate fields -- only calculateVehicleFares() does.
+interface VehicleRateConfig {
+  baseFare: number;
+  perKm: number;
+  perMinute: number;
+  perMinuteWaiting: number;
+  minFare: number;
+  vehicleMultiplier: number;
+}
 
 export const useRideStore = create<RideState>((set, get) => ({
   // Initial state
@@ -183,6 +157,7 @@ export const useRideStore = create<RideState>((set, get) => ({
   pickup: null,
   destination: null,
   isPickupManual: false,
+  pickupServiceAreaAvailable: null,
   passengerHex9: null,
   routeCoordinates: [],
   routeDistance: null,
@@ -198,7 +173,8 @@ export const useRideStore = create<RideState>((set, get) => ({
   fareReceipt: null,
   rideHistory: [],
   isLoadingHistory: false,
-  vehicleOptions: defaultVehicleOptions,
+  vehicleOptions: [],
+  vehicleRates: {},
   isFareCalculating: false,
 
   // Simple setters
@@ -223,7 +199,36 @@ export const useRideStore = create<RideState>((set, get) => ({
   setPickup: (location, manual = false) => {
     // Calculate hex9 if location is provided
     const passengerHex9 = location ? getHex9(location.latitude, location.longitude) : null;
-    set({ pickup: location, isPickupManual: manual, passengerHex9 });
+    // Every pickup change (GPS fix, manual search, map pin, or a future
+    // recipient-specific pickup) re-checks Checkpoint 2 below -- reset to
+    // "unknown" here so a stale true/false from the previous pickup never
+    // briefly shows against the new one while the RPC is in flight.
+    set({ pickup: location, isPickupManual: manual, passengerHex9, pickupServiceAreaAvailable: null });
+
+    if (!location) return;
+
+    get().checkServiceAreaAvailable(location.latitude, location.longitude).then((available) => {
+      // A newer pickup may have already superseded this one while the RPC
+      // was in flight -- only apply the result if it's still current.
+      if (get().pickup === location) {
+        set({ pickupServiceAreaAvailable: available });
+      }
+    });
+  },
+  // Checkpoint 1 (informational home-screen banner) and Checkpoint 2 (the
+  // real pickup gate, via setPickup above) both call this. Always calls the
+  // server-side is_within_service_area() RPC -- never reimplement the
+  // polygon/radius math here. Fails open (returns true) on any RPC/network
+  // error: this is a UX convenience layer only, the real enforcement is the
+  // order_area_validation_trigger on `orders`, so a transient failure here
+  // must never block a booking the server would otherwise accept.
+  checkServiceAreaAvailable: async (lat, lng) => {
+    const { available, errorMessage } = await isWithinServiceArea(lat, lng);
+    if (errorMessage) {
+      console.error('Failed to check service area availability:', errorMessage);
+      return true;
+    }
+    return available;
   },
   setDestination: (location) => set({ destination: location }),
   setRouteData: (coords, distance, duration, distanceMeters, durationSeconds) => set({
@@ -256,11 +261,67 @@ export const useRideStore = create<RideState>((set, get) => ({
     }
   },
 
+  // Fetches active vehicle classes and their live admin-configured rates
+  // from vehicle_classes_public. Call once when the customer home screen
+  // loads -- vehicleOptions starts empty until this resolves.
+  fetchVehicleOptions: async () => {
+    const { rows, errorMessage } = await fetchActiveVehicleClasses();
+    if (errorMessage) {
+      console.error('Failed to fetch vehicle options:', errorMessage);
+      return;
+    }
+
+    const vehicleRates: Partial<Record<VehicleType, VehicleRateConfig>> = {};
+    const vehicleOptions: VehicleOption[] = [];
+
+    rows.forEach((row) => {
+      // e.g. the "Bicycle" class -- nullable, not part of VehicleType's
+      // ordering enum yet, so there's no valid VehicleOption.id for it.
+      if (!row.vehicle_type) return;
+
+      const baseFare = Number(row.base_fare);
+      const perKm = Number(row.per_km);
+      const perMinute = Number(row.per_minute);
+      const perMinuteWaiting = Number(row.per_minute_waiting);
+      const minFare = Number(row.min_fare);
+      const vehicleMultiplier = Number(row.vehicle_multiplier);
+
+      vehicleRates[row.vehicle_type] = {
+        baseFare,
+        perKm,
+        perMinute,
+        perMinuteWaiting,
+        minFare,
+        vehicleMultiplier,
+      };
+
+      vehicleOptions.push({
+        id: row.vehicle_type,
+        name: row.name,
+        description: row.description ?? '',
+        // Temporary default until real icon rendering is wired up --
+        // falls back to VehicleCard's hardcoded map when no SVG is set.
+        icon: row.icon_svg_url || vehicleIcons[row.vehicle_type],
+        // Floor value (what a zero-distance/duration trip would cost) so the
+        // picker shows a real admin-configured number even before a route
+        // is calculated, instead of an arbitrary mock fare.
+        estimatedFare: parseFloat((vehicleMultiplier * minFare).toFixed(2)),
+        eta: 0,
+        capacity: row.max_capacity ?? 0,
+      });
+    });
+
+    set({ vehicleOptions, vehicleRates });
+  },
+
   // Calculates real per-vehicle fares/ETAs for the current pickup/destination
-  // pair, replacing the mock estimatedFare/eta on vehicleOptions with values
-  // derived from the actual route distance/duration.
+  // pair, replacing the floor estimatedFare/eta on vehicleOptions with values
+  // derived from the actual route distance/duration. Uses the same rates
+  // (vehicleRates, from vehicle_classes_public) that calculate_fare_breakdown()
+  // uses server-side, so the preview always matches whatever an admin has
+  // configured -- never reimplement this formula with local constants.
   calculateVehicleFares: async () => {
-    const { pickup, destination } = get();
+    const { pickup, destination, vehicleRates } = get();
     if (!pickup || !destination) return;
 
     set({ isFareCalculating: true });
@@ -275,11 +336,19 @@ export const useRideStore = create<RideState>((set, get) => ({
       const eta = Math.max(1, Math.round(durationMinutes));
 
       set((s) => ({
-        vehicleOptions: s.vehicleOptions.map((vehicle) => ({
-          ...vehicle,
-          estimatedFare: calculateFareForVehicle(vehicle.id, distanceKm, durationMinutes).total,
-          eta,
-        })),
+        vehicleOptions: s.vehicleOptions.map((vehicle) => {
+          const rate = vehicleRates[vehicle.id];
+          if (!rate) return { ...vehicle, eta };
+
+          const subtotal = rate.baseFare + distanceKm * rate.perKm + durationMinutes * rate.perMinute;
+          const total = rate.vehicleMultiplier * Math.max(subtotal, rate.minFare);
+
+          return {
+            ...vehicle,
+            estimatedFare: parseFloat(total.toFixed(2)),
+            eta,
+          };
+        }),
       }));
     } catch (error) {
       console.error('Failed to calculate vehicle fares:', error);
@@ -324,15 +393,13 @@ export const useRideStore = create<RideState>((set, get) => ({
       console.error('Distance Matrix lookup failed, using route estimate:', error);
     }
 
-    const fare = calculateFare(distanceKm, durationMinutes);
-
     const { order, errorMessage } = await createOrder({
       pickup: state.pickup,
       dropoff: state.destination,
       vehicleType: state.selectedVehicle,
       paymentMethod: state.paymentMethod,
-      baseFare: fare.baseFare,
-      fareAmount: fare.total,
+      distanceKm,
+      durationMinutes,
     });
 
     if (!order) {
@@ -632,6 +699,7 @@ export const useRideStore = create<RideState>((set, get) => ({
       pickup: null,
       destination: null,
       isPickupManual: false,
+      pickupServiceAreaAvailable: null,
       passengerHex9: null,
       scheduledFor: null,
       bookingFor: null,

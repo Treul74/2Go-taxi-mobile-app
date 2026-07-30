@@ -3,6 +3,7 @@ import { Map, ProvinceLabel } from '@/components/map';
 import { getNearbyHexes } from '@/core/spatialEngine';
 
 import { BackButton, IconButton } from '@/components/ui';
+import { colors } from '@/constants/theme';
 import { useSnappedLocation } from '@/hooks/useSnappedLocation';
 import { calculateDistanceMeters } from '@/lib/distance';
 import { findNearbyDrivers } from '@/services/discoveryEngine';
@@ -131,10 +132,28 @@ export function PassengerHome() {
     cancelRide,
     completeRide,
     setStatus,
+    checkServiceAreaAvailable,
+    fetchVehicleOptions,
   } = useRideStore();
 
   const { h3DebugMode, toggleH3DebugMode } = useSettingsStore();
   const { location: userLocation, province, loading: locationLoading } = useSnappedLocation();
+
+  // Vehicle classes/rates are admin-configured catalog data, not per-ride
+  // state -- fetch once when the home screen loads rather than per booking.
+  useEffect(() => {
+    fetchVehicleOptions();
+  }, [fetchVehicleOptions]);
+
+  // Checkpoint 1 (informational only): checked once, the first time the
+  // customer's own GPS location is acquired after this screen mounts. Does
+  // not gate booking at all -- that's Checkpoint 2, on rideStore's
+  // pickupServiceAreaAvailable, which tracks whatever pickup will actually
+  // be used for the order (own GPS, manual search, or a map pin), not the
+  // device's location. This lets a customer standing outside coverage still
+  // book a ride for a pickup elsewhere within coverage.
+  const [showServiceAreaBanner, setShowServiceAreaBanner] = useState(false);
+  const hasCheckedHomeLocationRef = useRef(false);
 
   const [showCancellationModal, setShowCancellationModal] = useState(false);
   const [isMapDragging, setIsMapDragging] = useState(false);
@@ -164,6 +183,18 @@ export function PassengerHome() {
       setNearbyVehicles(generated);
     }
   }, [userLocation, baseNearbyVehicles.length]);
+
+  // Checkpoint 1: fires once, the first time GPS is acquired after mount --
+  // not on every subsequent watcher update. Informational only; never
+  // blocks the screen or booking (see the ref above).
+  useEffect(() => {
+    if (!userLocation || hasCheckedHomeLocationRef.current) return;
+    hasCheckedHomeLocationRef.current = true;
+
+    checkServiceAreaAvailable(userLocation.latitude, userLocation.longitude).then((available) => {
+      setShowServiceAreaBanner(!available);
+    });
+  }, [userLocation, checkServiceAreaAvailable]);
 
   const handleVehicleJitter = useCallback((id: string, latitude: number, longitude: number) => {
     setNearbyVehicles((prev) => prev.map((v) => (v.id === id ? { ...v, latitude, longitude } : v)));
@@ -364,6 +395,24 @@ export function PassengerHome() {
           onPanDrag={handleMapDragStart}
           onRegionChangeComplete={handleMapDragEnd}
         />
+
+        {/* Checkpoint 1 — informational only. Dismissible; never blocks the
+            screen or booking. Left/right inset stops it colliding with the
+            floating map-type/H3 toggle column on the right. */}
+        {showServiceAreaBanner && (
+          <View
+            className="absolute left-4 right-20 bg-warning/15 border border-warning/40 rounded-3xl px-4 py-3 flex-row items-center gap-3"
+            style={{ top: insets.top + 8, zIndex: 20 }}
+          >
+            <Ionicons name="information-circle" size={20} color={colors.primary} />
+            <Text className="flex-1 text-primary text-xs leading-4">
+              You're outside our service area, but you can still book a ride for a pickup location within coverage.
+            </Text>
+            <Pressable onPress={() => setShowServiceAreaBanner(false)} hitSlop={8}>
+              <Ionicons name="close" size={18} color={colors.primary} />
+            </Pressable>
+          </View>
+        )}
 
         {/* Drivers for the idle micro-movement of simulated nearby vehicles
             (non-visual — each just nudges its own marker's coordinate) */}

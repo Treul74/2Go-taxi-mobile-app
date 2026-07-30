@@ -1,4 +1,6 @@
+import { isInvalidTokenError } from '@/lib/auth';
 import { insforge } from '@/lib/insforge';
+import { useAuthStore } from '@/state/authStore';
 import { fetchCustomerAccount } from './accounts';
 
 /**
@@ -18,7 +20,7 @@ export async function submitRating(
   const customer = await fetchCustomerAccount();
   if (!customer) return 'You need to be signed in to rate this trip.';
 
-  const { error } = await insforge.database.from('ratings').insert([
+  const payload = [
     {
       order_id: orderId,
       customer_id: customer.id,
@@ -26,7 +28,15 @@ export async function submitRating(
       rating,
       comment: comment || null,
     },
-  ]);
+  ];
+
+  let { error } = await insforge.database.from('ratings').insert(payload);
+
+  // The access token minted at login can expire mid-trip -- refresh once and
+  // retry rather than surfacing a stale-token error as a submission failure.
+  if (isInvalidTokenError(error) && (await useAuthStore.getState().refreshSession())) {
+    ({ error } = await insforge.database.from('ratings').insert(payload));
+  }
 
   return error ? error.message : null;
 }
@@ -52,7 +62,7 @@ export async function submitDriverRating(
   },
   comment?: string
 ): Promise<string | null> {
-  const { error } = await insforge.database.from('ratings').insert([
+  const payload = [
     {
       order_id: orderId,
       customer_id: customerId,
@@ -64,7 +74,15 @@ export async function submitDriverRating(
       comment: comment || null,
       rated_by: 'driver',
     },
-  ]);
+  ];
+
+  let { error } = await insforge.database.from('ratings').insert(payload);
+
+  // The access token minted at login can expire mid-trip -- refresh once and
+  // retry rather than surfacing a stale-token error as a submission failure.
+  if (isInvalidTokenError(error) && (await useAuthStore.getState().refreshSession())) {
+    ({ error } = await insforge.database.from('ratings').insert(payload));
+  }
 
   return error ? error.message : null;
 }

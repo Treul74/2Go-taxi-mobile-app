@@ -1,11 +1,9 @@
-import { Button, Card, RatingStars } from '@/components/ui';
-import { formatCurrency } from '@/lib/fareCalculator';
+import { Button, RatingStars } from '@/components/ui';
 import { useDriverStore } from '@/state';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { ScrollView, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { Pressable, ScrollView, Text, View } from 'react-native';
 
 /**
  * Post-trip rating screen shown to the driver, reached from
@@ -48,93 +46,124 @@ export default function DriverRatingScreen() {
     router.replace('/(tabs)');
   };
 
+  const initials = lastTripSummary?.passengerName
+    ? lastTripSummary.passengerName
+        .split(' ')
+        .map((part) => part[0])
+        .slice(0, 2)
+        .join('')
+        .toUpperCase()
+    : '?';
+
   return (
-    <SafeAreaView className="flex-1 bg-background" edges={['top', 'bottom']}>
-      <ScrollView
-        className="flex-1"
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ flexGrow: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24 }}
-      >
-        <Card variant="elevated" padding="lg" radius="2xl" className="w-full">
-          <View className="items-center py-4">
-            <View className="w-16 h-16 rounded-full bg-success/10 items-center justify-center mb-4">
-              <Ionicons name="checkmark-circle" size={40} color="#10B981" />
-            </View>
-            <Text className="text-primary font-bold text-xl mb-1">
-              Trip Completed
-            </Text>
-            <Text className="text-secondary text-sm mb-4">
-              How was your ride with {passengerName}?
-            </Text>
+    <ScrollView className="flex-1 bg-background" contentContainerStyle={{ paddingBottom: 24 }}>
+      <View className="items-center pt-4 pb-2">
+        <Text className="text-primary font-bold text-lg">Trip Complete</Text>
+      </View>
 
-            <View className="w-full bg-gray-100 rounded-3xl p-4 mb-6">
-              <View className="flex-row justify-between mb-2">
-                <Text className="text-secondary text-sm">Distance</Text>
-                <Text className="text-primary font-medium text-sm">
-                  {lastTripSummary.distance.toFixed(1)} km
-                </Text>
-              </View>
-              <View className="flex-row justify-between mb-2">
-                <Text className="text-secondary text-sm">Duration</Text>
-                <Text className="text-primary font-medium text-sm">
-                  {lastTripSummary.duration} min
-                </Text>
-              </View>
-              <View className="flex-row justify-between">
-                <Text className="text-secondary text-sm">Fare</Text>
-                <Text className="text-primary font-medium text-sm">
-                  {formatCurrency(lastTripSummary.fareAmount)}
-                </Text>
-              </View>
-            </View>
-
-            <Text className="text-secondary text-sm mt-4 mb-2 text-center">
-              Rate your passenger
-            </Text>
-
-            <RatingStars size="lg" value={overallRating} onChange={setOverallRating} />
-
-            <View className="w-full mt-4">
-              <View className="flex-row items-center py-3 border-b border-gray-100">
-                <View className="w-10 h-10 rounded-full bg-gray-100 items-center justify-center">
-                  <Ionicons name="time-outline" size={20} color="#7B8387" />
-                </View>
-                <View className="flex-1 ml-3">
-                  <Text className="text-primary font-semibold text-sm">Punctuality</Text>
-                </View>
-                <RatingStars size="sm" value={punctuality} onChange={setPunctuality} />
-              </View>
-
-              <View className="flex-row items-center py-3 border-b border-gray-100">
-                <View className="w-10 h-10 rounded-full bg-gray-100 items-center justify-center">
-                  <Ionicons name="chatbubble-outline" size={20} color="#7B8387" />
-                </View>
-                <View className="flex-1 ml-3">
-                  <Text className="text-primary font-semibold text-sm">Communication</Text>
-                </View>
-                <RatingStars size="sm" value={communication} onChange={setCommunication} />
-              </View>
-
-              <View className="flex-row items-center py-3">
-                <View className="w-10 h-10 rounded-full bg-gray-100 items-center justify-center">
-                  <Ionicons name="wallet-outline" size={20} color="#7B8387" />
-                </View>
-                <View className="flex-1 ml-3">
-                  <Text className="text-primary font-semibold text-sm">Payment</Text>
-                </View>
-                <RatingStars size="sm" value={payment} onChange={setPayment} />
-              </View>
-            </View>
+      <View className="items-center mt-6">
+        <View
+          className="w-[88px] h-[88px] rounded-full border-[3px] border-white items-center justify-center bg-gray-200"
+          style={{
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 2 },
+            shadowOpacity: 0.15,
+            shadowRadius: 6,
+            elevation: 4,
+          }}
+        >
+          <Text className="text-primary font-bold text-2xl">{initials}</Text>
+          <View className="absolute bottom-0 right-0 w-5 h-5 rounded-full bg-accent items-center justify-center">
+            <Ionicons name="location" size={12} color="#FFFFFF" />
           </View>
+        </View>
+        <Text className="text-primary font-bold text-xl mt-3">{passengerName}</Text>
+        <Text className="text-secondary text-sm mt-1">
+          How was your ride with {passengerName} today?
+        </Text>
+      </View>
 
-          <Button variant="accent" fullWidth onPress={handleSubmit} disabled={overallRating === 0}>
-            Submit Rating
-          </Button>
-          <Button variant="ghost" fullWidth className="mt-2" onPress={handleSkip}>
-            Skip for now
-          </Button>
-        </Card>
-      </ScrollView>
-    </SafeAreaView>
+      <View className="flex-row bg-white rounded-2xl mx-4 mt-4 py-4">
+        <View className="flex-1 items-center">
+          <Text className="text-secondary text-xs uppercase tracking-wider">Distance</Text>
+          <Text className="text-primary font-bold text-base mt-1">
+            {lastTripSummary.distance.toFixed(1)} km
+          </Text>
+        </View>
+        <View className="w-px self-stretch bg-gray-200 mx-2" />
+        <View className="flex-1 items-center">
+          <Text className="text-secondary text-xs uppercase tracking-wider">Time</Text>
+          <Text className="text-primary font-bold text-base mt-1">
+            {lastTripSummary.duration} min
+          </Text>
+        </View>
+        <View className="w-px self-stretch bg-gray-200 mx-2" />
+        <View className="flex-1 items-center">
+          <Text className="text-secondary text-xs uppercase tracking-wider">Fare</Text>
+          <Text className="text-accent font-bold text-base mt-1">
+            K{lastTripSummary.fareAmount.toFixed(2)}
+          </Text>
+        </View>
+      </View>
+
+      <View className="bg-white rounded-2xl mx-4 mt-3 py-4 items-center">
+        <Text className="text-secondary text-xs uppercase tracking-widest mb-3">
+          Overall Rating
+        </Text>
+        <RatingStars size="lg" value={overallRating} onChange={setOverallRating} />
+      </View>
+
+      <View className="mx-4 mt-3 gap-3">
+        <View className="px-4 py-4 flex-row items-center bg-white rounded-2xl">
+          <View className="w-10 h-10 rounded-full bg-orange-50 items-center justify-center">
+            <Ionicons name="time-outline" size={20} color="#FE5035" />
+          </View>
+          <View className="flex-1 ml-3">
+            <Text className="text-primary font-semibold text-sm">Punctuality</Text>
+          </View>
+          <RatingStars size="sm" value={punctuality} onChange={setPunctuality} />
+        </View>
+
+        <View className="px-4 py-4 flex-row items-center bg-white rounded-2xl">
+          <View className="w-10 h-10 rounded-full bg-orange-50 items-center justify-center">
+            <Ionicons name="chatbubble-outline" size={20} color="#FE5035" />
+          </View>
+          <View className="flex-1 ml-3">
+            <Text className="text-primary font-semibold text-sm">Communication</Text>
+          </View>
+          <RatingStars size="sm" value={communication} onChange={setCommunication} />
+        </View>
+
+        <View className="px-4 py-4 flex-row items-center bg-white rounded-2xl">
+          <View className="w-10 h-10 rounded-full bg-gray-100 items-center justify-center">
+            <Ionicons name="wallet-outline" size={20} color="#26344F" />
+          </View>
+          <View className="flex-1 ml-3">
+            <Text className="text-primary font-semibold text-sm">Payment</Text>
+          </View>
+          <RatingStars size="sm" value={payment} onChange={setPayment} />
+        </View>
+      </View>
+
+      <View className="mx-4 mt-6 mb-4">
+        <Button
+          variant="accent"
+          fullWidth
+          className="rounded-2xl"
+          onPress={handleSubmit}
+          disabled={overallRating === 0}
+        >
+          Submit Rating
+        </Button>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Skip rating"
+          onPress={handleSkip}
+          className="mt-3 items-center justify-center py-2"
+        >
+          <Text className="text-secondary text-sm text-center">Skip for now</Text>
+        </Pressable>
+      </View>
+    </ScrollView>
   );
 }
