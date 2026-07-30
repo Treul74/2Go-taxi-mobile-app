@@ -116,6 +116,9 @@ export interface MapProps {
 
   /** Formatted arrival time (e.g. "10:59 PM") — when set, replaces the red destination pin with a white "arrive at" callout bubble */
   arrivalTime?: string | null;
+
+  /** Explicit MapView edge padding (e.g. to keep the camera focus point clear of an overlay). Overrides the navigationArrowMode default when set. */
+  mapPadding?: { top: number; right: number; bottom: number; left: number };
 }
 
 

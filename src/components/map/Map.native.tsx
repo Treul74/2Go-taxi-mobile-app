@@ -71,6 +71,7 @@ export const Map = React.forwardRef<any, MapProps>(({
   hidePickupPin = false,
   isLiveLocation = false,
   arrivalTime,
+  mapPadding,
 }: MapProps, ref) => {
   const mapRef = useRef<any>(null);
   const [isReady, setIsReady] = useState(false);
@@ -296,7 +297,7 @@ export const Map = React.forwardRef<any, MapProps>(({
         rotateEnabled={true}
         pitchEnabled={true}
         toolbarEnabled={false}
-        mapPadding={navigationArrowMode ? { top: 0, right: 0, bottom: 200, left: 0 } : { top: 0, right: 0, bottom: 0, left: 0 }}
+        mapPadding={mapPadding ?? (navigationArrowMode ? { top: 0, right: 0, bottom: 200, left: 0 } : { top: 0, right: 0, bottom: 0, left: 0 })}
         onMapReady={handleMapReady}
         onPress={handleMapPress}
         onPanDrag={onPanDrag}

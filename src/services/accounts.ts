@@ -1,3 +1,4 @@
+import { isInvalidTokenError } from '@/lib/auth';
 import { insforge } from '@/lib/insforge';
 import { useAuthStore } from '@/state/authStore';
 import type { CustomerAccount, CustomerAccountStatus, DriverAccount, DriverStatus, UploadedDocument, VehicleType } from '@/types';
@@ -50,11 +51,22 @@ export async function fetchCustomerAccount(): Promise<CustomerAccount | null> {
   const authId = await getAuthUserId();
   if (!authId) return null;
 
-  const { data, error } = await insforge.database
+  let { data, error } = await insforge.database
     .from('customers')
     .select('id, auth_id, first_name, last_name, email, phone_number, account_status, profile_photo_url, profile_photo_key')
     .eq('auth_id', authId)
     .maybeSingle<CustomerRow>();
+
+  // The access token minted at login can expire mid-session (e.g. by the
+  // time a long trip ends) — refresh once and retry rather than reporting
+  // "not signed in" for what is actually a stale token.
+  if (isInvalidTokenError(error) && (await useAuthStore.getState().refreshSession())) {
+    ({ data, error } = await insforge.database
+      .from('customers')
+      .select('id, auth_id, first_name, last_name, email, phone_number, account_status, profile_photo_url, profile_photo_key')
+      .eq('auth_id', authId)
+      .maybeSingle<CustomerRow>());
+  }
 
   if (error || !data) return null;
 
@@ -79,11 +91,19 @@ export async function fetchDriverAccount(): Promise<DriverAccount | null> {
   const authId = await getAuthUserId();
   if (!authId) return null;
 
-  const { data, error } = await insforge.database
+  let { data, error } = await insforge.database
     .from('drivers')
     .select('id, auth_id, first_name, last_name, email, phone_number, account_status, vehicle_type, profile_photo_url, profile_photo_key')
     .eq('auth_id', authId)
     .maybeSingle<DriverRow>();
+
+  if (isInvalidTokenError(error) && (await useAuthStore.getState().refreshSession())) {
+    ({ data, error } = await insforge.database
+      .from('drivers')
+      .select('id, auth_id, first_name, last_name, email, phone_number, account_status, vehicle_type, profile_photo_url, profile_photo_key')
+      .eq('auth_id', authId)
+      .maybeSingle<DriverRow>());
+  }
 
   if (error || !data) return null;
 

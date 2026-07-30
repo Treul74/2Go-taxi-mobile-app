@@ -22,3 +22,12 @@ export async function refreshSessionAndSyncAccessToken(refreshToken: string) {
   }
   return response;
 }
+
+// The access token minted at login/hydrate is short-lived; a long trip can
+// outlast it, so any InsForge call made near the end of a trip (submitting a
+// rating, completing a trip) can come back with this error even though the
+// session itself is still valid — callers should refresh and retry once
+// rather than treating it as "not signed in".
+export function isInvalidTokenError(error: { message?: string } | null | undefined): boolean {
+  return !!error?.message && /token/i.test(error.message);
+}

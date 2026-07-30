@@ -198,6 +198,17 @@ export interface TripSummary {
   netEarnings: number;
 }
 
+// Trip facts the driver app reports at completion -- no fare fields. The
+// server computes fare_amount/service_fee_amount/driver_earnings from
+// distance/waitingDuration and its own server-stamped timestamps.
+export interface TripCompletionInput {
+  passengerName: string;
+  distance: number; // actual distance driven, km
+  duration: number; // minutes, local display only -- not sent to the server
+  waitingDuration: number; // minutes
+  completedAt: string; // ISO timestamp
+}
+
 // Activity & History
 export type RideHistoryStatus = 'completed' | 'cancelled' | 'scheduled';
 

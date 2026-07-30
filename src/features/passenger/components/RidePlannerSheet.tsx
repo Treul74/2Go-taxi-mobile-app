@@ -1,7 +1,8 @@
 import { USER_LOCATION_COLOR } from '@/components/map/markers';
-import { Button, IconButton, Input } from '@/components/ui';
+import { Button, IconButton, Input, Pill } from '@/components/ui';
 import { useCurrentLocation } from '@/hooks/useCurrentLocation';
 import { formatDisplayAddress } from '@/lib';
+import { getActiveFareSurcharge } from '@/lib/fareSurcharge';
 import { getDirections } from '@/lib/google';
 import { useRideStore, useUserStore } from '@/state';
 import type { Location, PaymentMethod, SavedAddress } from '@/types';
@@ -56,6 +57,20 @@ export function RidePlannerSheet({ onRequestRide, isMapDragging = false }: RideP
   const [destinationQuery, setDestinationQuery] = useState('');
   const [pickupQuery, setPickupQuery] = useState('');
 
+  // Night/peak surcharge badge — mirrors the server's time windows (see
+  // fareSurcharge.ts) purely for display; refreshed every minute in case the
+  // sheet is left open across a window boundary. The actual charged fare
+  // always comes from the server's own calculate_fare_breakdown() call at
+  // booking/completion time, not from this client-side check.
+  const [activeSurcharge, setActiveSurcharge] = useState(() => getActiveFareSurcharge());
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setActiveSurcharge(getActiveFareSurcharge());
+    }, 60_000);
+    return () => clearInterval(interval);
+  }, []);
+
   // Animation for card minimization
   const cardHeightAnim = useRef(new Animated.Value(1)).current;
 
@@ -87,6 +102,7 @@ export function RidePlannerSheet({ onRequestRide, isMapDragging = false }: RideP
     setDriverInstructions,
     pickup,
     isPickupManual,
+    pickupServiceAreaAvailable,
     destination,
     setPickup,
     setDestination,
@@ -343,6 +359,12 @@ export function RidePlannerSheet({ onRequestRide, isMapDragging = false }: RideP
               Location permission required
             </Text>
           )}
+
+          {pickupServiceAreaAvailable === false && (
+            <Text className="text-error text-xs mt-1 ml-1">
+              Service not available at this pickup location
+            </Text>
+          )}
         </Pressable>
 
         <View className="h-px bg-gray-100 mx-1" />
@@ -375,6 +397,19 @@ export function RidePlannerSheet({ onRequestRide, isMapDragging = false }: RideP
           />
         </View>
 
+        {/* Surcharge badge — informational, mirrors the server's own
+            night/peak windows for the fare estimate shown above */}
+        {activeSurcharge && (
+          <View className="mt-3 items-start">
+            <Pill
+              label={activeSurcharge === 'night' ? 'Night rate applies' : 'Peak hour pricing'}
+              icon={activeSurcharge === 'night' ? 'moon' : 'trending-up'}
+              variant="warning"
+              size="sm"
+            />
+          </View>
+        )}
+
         {/* Book Button Row */}
         <View className="mt-4 flex-row items-center gap-3">
           {/* Payment Icon */}
@@ -393,7 +428,7 @@ export function RidePlannerSheet({ onRequestRide, isMapDragging = false }: RideP
               fullWidth
               onPress={handleBookRide}
               rightIcon="arrow-forward"
-              disabled={isFareCalculating}
+              disabled={isFareCalculating || pickupServiceAreaAvailable === false}
             >
               {isFareCalculating
                 ? 'Calculating...'

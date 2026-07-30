@@ -18,8 +18,9 @@ interface VehicleCardProps {
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
-// Vehicle icon mapping
-const vehicleIcons: Record<VehicleType, keyof typeof Ionicons.glyphMap> = {
+// Vehicle icon mapping. Exported for reuse as rideStore's temporary
+// fallback when a vehicle_classes_public row has no icon_svg_url yet.
+export const vehicleIcons: Record<VehicleType, keyof typeof Ionicons.glyphMap> = {
   economy: 'car-outline',
   comfort: 'car-sport-outline',
   bike: 'bicycle-outline',
