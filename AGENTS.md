@@ -316,6 +316,374 @@ database audits, code audits, config audits, security audits,
 performance audits, and any other read-only investigation.
 
 ---
+---
+
+# =============================================================================
+# GO NAVIGATION ENGINE
+# =============================================================================
+
+The project uses ONE global Navigation Engine.
+
+The Navigation Engine is the single source of truth for every navigation-related
+feature inside the application.
+
+Do NOT create new navigation implementations.
+
+Everything must reuse the existing Navigation Engine.
+
+The complete architecture and implementation specification lives in:
+
+GO Navigation Engine Bible.md
+
+Every AI agent must read and follow that document before making any
+navigation-related changes.
+
+If any prompt conflicts with the Navigation Bible, the Navigation Bible takes
+precedence.
+
+---
+
+## Navigation Engine Responsibilities
+
+The Navigation Engine owns every navigation behaviour in the application.
+
+This includes:
+
+- Camera Follow
+- Camera Rotation
+- Camera Bearing
+- Camera Pitch
+- Camera Zoom
+- Camera Padding
+- Auto Fit Camera
+- Route Rendering
+- Polyline Management
+- GPS Tracking
+- Driver Heading
+- Turn Instructions
+- Navigation Banner
+- Marker Animation
+- ETA Calculation
+- Remaining Distance
+- Arrival Detection
+- Pickup Detection
+- Route Progress
+- Re-routing
+- Road Snapping
+- Navigation State Management
+
+No individual screen should implement any of these independently.
+
+---
+
+## Single Source of Truth
+
+The Navigation Engine is the only place allowed to control:
+
+- Google Maps Camera
+- Route Calculations
+- GPS Updates
+- Navigation State
+- Driver Position
+- Route Progress
+- Camera Animations
+
+Screens must never duplicate navigation logic.
+
+---
+
+## Camera Rules
+
+The camera is global.
+
+Never animate the map directly from screens.
+
+Screens must never call:
+
+- animateCamera()
+- animateToRegion()
+- fitToCoordinates()
+- setCamera()
+- animateToCoordinate()
+
+Instead, screens request behaviour from the Navigation Engine.
+
+Example:
+
+navigation.previewRoute()
+
+navigation.startNavigation()
+
+navigation.followDriver()
+
+navigation.arrived()
+
+navigation.completeTrip()
+
+The Navigation Engine performs all camera animations.
+
+---
+
+## Auto Fit Rules
+
+Whenever both Pickup and Drop-off exist,
+the Navigation Engine automatically computes the optimal viewport.
+
+Requirements:
+
+- Pickup must be visible.
+- Drop-off must be visible.
+- Driver marker visible when appropriate.
+- Bottom sheets must never cover markers.
+- Floating buttons must never cover markers.
+- Safe areas must always be respected.
+- Proper edge padding must always be applied.
+
+No screen should call fitToCoordinates directly.
+
+---
+
+## Navigation Modes
+
+The Navigation Engine supports only these navigation states.
+
+IDLE
+
+User selecting locations.
+
+PREVIEW
+
+Displaying Pickup and Drop-off.
+
+MATCHING
+
+Waiting for a driver.
+
+DRIVER_TO_PICKUP
+
+Driver navigating to Pickup.
+
+ARRIVED_PICKUP
+
+Driver waiting for Customer.
+
+TRIP_IN_PROGRESS
+
+Customer onboard.
+
+ARRIVED_DROPOFF
+
+Driver reached destination.
+
+TRIP_COMPLETED
+
+Trip finished.
+
+OFFLINE
+
+Driver unavailable.
+
+Every screen must use one of these modes.
+
+---
+
+## Camera Behaviour
+
+### PREVIEW MODE
+
+- Auto Fit entire route.
+- North-up map.
+- Show Pickup and Drop-off.
+- Show full route.
+- Dynamic edge padding.
+
+### DRIVER TO PICKUP
+
+- Camera follows driver.
+- Camera bearing follows heading.
+- Driver arrow always centered.
+- Road rotates beneath the driver.
+- Dynamic zoom.
+- Slight pitch for better visibility.
+
+### TRIP IN PROGRESS
+
+- Camera follows driver continuously.
+- Navigation arrow remains fixed facing North.
+- The road rotates beneath the arrow.
+- Upcoming turns remain visible.
+- Dynamic zoom adjusts automatically based on speed and upcoming turns.
+- Smooth camera interpolation.
+- No abrupt camera jumps.
+
+### ARRIVAL
+
+- Camera zooms closer.
+- Rotation slows.
+- Destination becomes centered.
+- Prepare arrival screen transition.
+
+---
+
+## Route Rules
+
+The Navigation Engine owns:
+
+- Google Directions API
+- Polyline decoding
+- Polyline rendering
+- Alternative routes
+- Traffic routes
+- Remaining distance
+- ETA
+- Route progress
+- Re-routing
+- Snap to Roads
+
+Never duplicate route calculations anywhere else.
+
+---
+
+## GPS Rules
+
+Only ONE GPS watcher exists for the entire application.
+
+Never create multiple Location subscriptions.
+
+The Navigation Engine owns:
+
+- Foreground tracking
+- Background tracking
+- Driver heading
+- Speed updates
+- Bearing smoothing
+- Accuracy filtering
+- Position interpolation
+
+Screens consume GPS state only.
+
+---
+
+## Navigation Components
+
+All navigation UI must be reusable.
+
+Create reusable components inside:
+
+src/components/navigation/
+
+Recommended reusable components:
+
+NavigationEngineProvider
+
+NavigationMap
+
+NavigationCamera
+
+NavigationRoute
+
+NavigationMarkers
+
+NavigationArrow
+
+NavigationHUD
+
+NavigationTurnBanner
+
+NavigationBottomCard
+
+NavigationControls
+
+NavigationVoice
+
+NavigationStateManager
+
+NavigationSpeedCard
+
+NavigationRouteProgress
+
+NavigationAutoFit
+
+NavigationCompass
+
+NavigationArrivalCard
+
+Do not duplicate these components elsewhere.
+
+---
+
+## Screen Responsibilities
+
+Screens only request actions.
+
+Example:
+
+navigation.preview()
+
+navigation.start()
+
+navigation.follow()
+
+navigation.arrived()
+
+navigation.complete()
+
+navigation.cancel()
+
+The Navigation Engine performs every navigation action.
+
+---
+
+## AI Navigation Rules
+
+Whenever an AI agent receives a prompt related to:
+
+- Maps
+- Navigation
+- GPS
+- Camera
+- Route
+- Pickup
+- Drop-off
+- ETA
+- Turn Instructions
+- Driver Tracking
+
+The AI MUST first review:
+
+GO Navigation Engine Bible.md
+
+before generating any code.
+
+If the requested implementation conflicts with the Navigation Bible:
+
+- Explain the conflict.
+- Follow the Navigation Bible.
+- Never create duplicate navigation systems.
+- Never create duplicate camera logic.
+- Never create duplicate GPS tracking.
+- Never create duplicate route rendering.
+
+Always extend the existing Navigation Engine.
+
+---
+
+## Navigation Architecture Principle
+
+The entire application must behave as if there is only one navigation engine.
+
+Every navigation feature, whether used by:
+
+- Customer
+- Driver
+- Delivery
+- Ride Sharing
+- Future logistics features
+
+must reuse the same Navigation Engine.
+
+The Navigation Engine is considered core infrastructure and must never be duplicated, bypassed, or replaced without an explicit architectural decision.
+
 
 ## Known Gaps (Not Yet Built)
 
