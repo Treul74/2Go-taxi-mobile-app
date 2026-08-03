@@ -1,0 +1,1052 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Navigation System Architecture Audit — 2Go</title>
+<style>
+  :root {
+    --bg: #f5f7f9;
+    --bg-alt: #ffffff;
+    --card: #ffffff;
+    --border: #dde3ea;
+    --text: #182130;
+    --text-dim: #55606f;
+    --text-faint: #8992a1;
+    --accent: #2c5fb8;
+    --accent-soft: #e7edf9;
+    --mono-bg: #eef1f5;
+    --crit: #c1443c;
+    --crit-soft: #fbe9e8;
+    --warn: #a56a17;
+    --warn-soft: #fbf0dd;
+    --info: #3d7ddb;
+    --info-soft: #e9f1fc;
+    --ok: #2f8f5b;
+    --ok-soft: #e7f5ee;
+    --grid-line: rgba(44,95,184,0.055);
+    --shadow: 0 1px 2px rgba(20,30,50,0.04), 0 8px 24px -12px rgba(20,30,50,0.10);
+  }
+  :root[data-theme="dark"] {
+    --bg: #0b0f16;
+    --bg-alt: #10151f;
+    --card: #121826;
+    --border: #232c3d;
+    --text: #e6e9f0;
+    --text-dim: #a3adbe;
+    --text-faint: #6b7486;
+    --accent: #6d9bee;
+    --accent-soft: rgba(109,155,238,0.12);
+    --mono-bg: #0d1420;
+    --crit: #e2685f;
+    --crit-soft: rgba(226,104,95,0.12);
+    --warn: #e0a53f;
+    --warn-soft: rgba(224,165,63,0.12);
+    --info: #6d9bee;
+    --info-soft: rgba(109,155,238,0.12);
+    --ok: #4fb87e;
+    --ok-soft: rgba(79,184,126,0.12);
+    --grid-line: rgba(109,155,238,0.07);
+    --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 8px 24px -12px rgba(0,0,0,0.5);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0b0f16;
+      --bg-alt: #10151f;
+      --card: #121826;
+      --border: #232c3d;
+      --text: #e6e9f0;
+      --text-dim: #a3adbe;
+      --text-faint: #6b7486;
+      --accent: #6d9bee;
+      --accent-soft: rgba(109,155,238,0.12);
+      --mono-bg: #0d1420;
+      --crit: #e2685f;
+      --crit-soft: rgba(226,104,95,0.12);
+      --warn: #e0a53f;
+      --warn-soft: rgba(224,165,63,0.12);
+      --info: #6d9bee;
+      --info-soft: rgba(109,155,238,0.12);
+      --ok: #4fb87e;
+      --ok-soft: rgba(79,184,126,0.12);
+      --grid-line: rgba(109,155,238,0.07);
+      --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 8px 24px -12px rgba(0,0,0,0.5);
+    }
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: Charter, "Iowan Old Style", "Palatino Linotype", Georgia, "Noto Serif", serif;
+    font-size: 17px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+  .font-ui, h1, h2, h3, h4, .eyebrow, .chip, .toc, .stat-label, th, .btn, nav.toc a, .meta, .legend {
+    font-family: "Segoe UI Semibold", "Helvetica Neue", Arial, sans-serif;
+  }
+  .mono, code, td.mono, .filepath {
+    font-family: ui-monospace, "Cascadia Code", "SF Mono", Consolas, "Roboto Mono", monospace;
+  }
+
+  a { color: var(--accent); }
+  a:focus-visible, button:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  .shell {
+    display: grid;
+    grid-template-columns: 250px minmax(0,1fr);
+    gap: 0;
+    max-width: 1240px;
+    margin: 0 auto;
+  }
+  @media (max-width: 920px) {
+    .shell { grid-template-columns: 1fr; }
+    nav.toc { position: static; height: auto; border-right: none; border-bottom: 1px solid var(--border); }
+  }
+
+  nav.toc {
+    position: sticky;
+    top: 0;
+    align-self: start;
+    height: 100vh;
+    overflow-y: auto;
+    padding: 28px 18px 40px 24px;
+    border-right: 1px solid var(--border);
+  }
+  nav.toc .brand {
+    font-size: 12px;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    margin-bottom: 18px;
+  }
+  nav.toc ol {
+    list-style: none;
+    margin: 0 0 22px 0;
+    padding: 0;
+    counter-reset: toc;
+  }
+  nav.toc li { margin: 0; }
+  nav.toc a {
+    counter-increment: toc;
+    display: flex;
+    gap: 8px;
+    padding: 6px 8px;
+    margin: 0 -8px;
+    border-radius: 6px;
+    font-size: 13.5px;
+    color: var(--text-dim);
+    text-decoration: none;
+    line-height: 1.3;
+  }
+  nav.toc a::before {
+    content: counter(toc, decimal-leading-zero);
+    color: var(--text-faint);
+    font-variant-numeric: tabular-nums;
+    flex-shrink: 0;
+  }
+  nav.toc a:hover { background: var(--accent-soft); color: var(--text); }
+  nav.toc .legend {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-faint);
+    margin: 20px 0 8px;
+  }
+  nav.toc .legend-row { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--text-dim); padding: 3px 0; }
+  nav.toc .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+
+  main {
+    padding: 48px 56px 120px;
+    min-width: 0;
+  }
+  @media (max-width: 640px) { main { padding: 32px 20px 90px; } }
+
+  header.title-block {
+    margin-bottom: 44px;
+    padding-bottom: 32px;
+    border-bottom: 1px solid var(--border);
+    background-image:
+      radial-gradient(var(--grid-line) 1px, transparent 1px);
+    background-size: 18px 18px;
+    background-position: -9px -9px;
+  }
+  .eyebrow {
+    font-size: 12px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 10px;
+  }
+  h1 {
+    font-size: clamp(28px, 4vw, 40px);
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    margin: 0 0 10px;
+    text-wrap: balance;
+  }
+  .subtitle {
+    font-family: Charter, Georgia, serif;
+    font-size: 18px;
+    color: var(--text-dim);
+    max-width: 62ch;
+    margin: 0 0 20px;
+  }
+  .meta-row { display: flex; flex-wrap: wrap; gap: 8px 10px; font-size: 12.5px; color: var(--text-faint); }
+  .meta-row .pill {
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 4px 11px;
+    background: var(--bg-alt);
+  }
+
+  h2 {
+    font-size: 24px;
+    font-weight: 700;
+    letter-spacing: -0.005em;
+    margin: 64px 0 6px;
+    scroll-margin-top: 20px;
+    text-wrap: balance;
+  }
+  h2 .num { color: var(--accent); font-variant-numeric: tabular-nums; margin-right: 10px; }
+  h2 + .section-dek { color: var(--text-dim); font-size: 15.5px; margin: 0 0 26px; max-width: 68ch; }
+  h3 {
+    font-size: 16.5px;
+    font-weight: 700;
+    margin: 30px 0 10px;
+    color: var(--text);
+  }
+  h4 {
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-faint);
+    margin: 22px 0 8px;
+  }
+  p { max-width: 70ch; margin: 0 0 14px; }
+  ul, ol { max-width: 68ch; padding-left: 22px; }
+  li { margin-bottom: 6px; }
+  strong { font-weight: 700; }
+
+  .lede {
+    font-size: 15.5px;
+    color: var(--text-dim);
+    max-width: 72ch;
+    margin: -8px 0 30px;
+  }
+
+  /* Stat strip */
+  .stat-strip {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    margin: 8px 0 8px;
+  }
+  .stat {
+    background: var(--card);
+    padding: 16px 16px 14px;
+  }
+  .stat .n {
+    font-family: "Segoe UI Semibold", sans-serif;
+    font-size: 28px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+    color: var(--text);
+  }
+  .stat .n.crit { color: var(--crit); }
+  .stat .n.warn { color: var(--warn); }
+  .stat .label {
+    font-size: 11.5px;
+    color: var(--text-faint);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-top: 6px;
+  }
+
+  /* Cards / diagrams */
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px 22px;
+    margin: 18px 0 26px;
+    box-shadow: var(--shadow);
+  }
+  .diagram-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px;
+    margin: 10px 0 30px;
+    overflow-x: auto;
+    background-image: radial-gradient(var(--grid-line) 1px, transparent 1px);
+    background-size: 16px 16px;
+  }
+  .diagram-card figcaption {
+    font-family: "Segoe UI Semibold", sans-serif;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-faint);
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px dashed var(--border);
+  }
+  pre.mermaid { margin: 0; display: flex; justify-content: center; min-width: 560px; }
+
+  /* Tables */
+  .table-wrap { overflow-x: auto; margin: 14px 0 28px; border: 1px solid var(--border); border-radius: 10px; }
+  table { border-collapse: collapse; width: 100%; min-width: 640px; font-size: 14px; background: var(--card); }
+  thead th {
+    text-align: left;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-faint);
+    padding: 10px 14px;
+    background: var(--bg-alt);
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  tbody td {
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-dim);
+    vertical-align: top;
+  }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody td:first-child { color: var(--text); font-weight: 600; }
+  td.mono, code {
+    font-size: 12.5px;
+    background: var(--mono-bg);
+    padding: 1px 6px;
+    border-radius: 4px;
+    color: var(--text);
+    white-space: nowrap;
+  }
+
+  /* Severity chips */
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 3px 9px;
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+  .chip.crit { background: var(--crit-soft); color: var(--crit); }
+  .chip.warn { background: var(--warn-soft); color: var(--warn); }
+  .chip.info { background: var(--info-soft); color: var(--info); }
+  .chip.ok   { background: var(--ok-soft); color: var(--ok); }
+  .chip .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
+  /* Finding blocks */
+  .finding {
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 18px;
+    margin: 12px 0;
+    background: var(--card);
+  }
+  .finding.crit { border-left-color: var(--crit); }
+  .finding.warn { border-left-color: var(--warn); }
+  .finding.info { border-left-color: var(--info); }
+  .finding .fhead { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 6px; }
+  .finding .ftitle { font-family: "Segoe UI Semibold", sans-serif; font-weight: 700; font-size: 14.5px; color: var(--text); }
+  .finding p { margin: 4px 0; font-size: 14.5px; }
+  .finding .evidence { color: var(--text-faint); font-size: 12.5px; margin-top: 6px; }
+
+  /* Details / appendix */
+  details.appendix {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    margin: 14px 0;
+    background: var(--card);
+    overflow: hidden;
+  }
+  details.appendix summary {
+    cursor: pointer;
+    list-style: none;
+    padding: 14px 18px;
+    font-family: "Segoe UI Semibold", sans-serif;
+    font-weight: 600;
+    font-size: 14.5px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+  }
+  details.appendix summary::-webkit-details-marker { display: none; }
+  details.appendix summary::after {
+    content: "+";
+    font-size: 18px;
+    color: var(--text-faint);
+    font-family: "Segoe UI Semibold", sans-serif;
+    transition: transform 0.15s ease;
+  }
+  details.appendix[open] summary::after { content: "–"; }
+  details.appendix summary .count { font-size: 11.5px; color: var(--text-faint); font-weight: 400; }
+  details.appendix .inner { padding: 4px 18px 18px; border-top: 1px solid var(--border); }
+  details.appendix .inner p:first-child { margin-top: 14px; }
+
+  blockquote {
+    margin: 14px 0;
+    padding: 4px 0 4px 16px;
+    border-left: 3px solid var(--accent);
+    color: var(--text-dim);
+    font-size: 15px;
+    max-width: 66ch;
+  }
+
+  .roadmap { list-style: none; padding: 0; margin: 20px 0; counter-reset: step; }
+  .roadmap li {
+    counter-increment: step;
+    display: grid;
+    grid-template-columns: 40px 1fr;
+    gap: 14px;
+    padding: 16px 0;
+    border-top: 1px solid var(--border);
+    max-width: 100%;
+  }
+  .roadmap li:first-child { border-top: none; }
+  .roadmap li::before {
+    content: counter(step, decimal-leading-zero);
+    font-family: "Segoe UI Semibold", sans-serif;
+    font-weight: 700;
+    font-size: 15px;
+    color: var(--accent);
+    font-variant-numeric: tabular-nums;
+  }
+  .roadmap .step-title { font-family: "Segoe UI Semibold", sans-serif; font-weight: 700; font-size: 15.5px; margin-bottom: 4px; }
+  .roadmap .step-body { font-size: 14.5px; color: var(--text-dim); max-width: 68ch; }
+  .roadmap .step-body p { font-size: 14.5px; margin: 4px 0; }
+
+  hr.rule { border: none; border-top: 1px solid var(--border); margin: 40px 0; }
+
+  footer {
+    margin-top: 60px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
+    color: var(--text-faint);
+    font-size: 12.5px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+  }
+</style>
+</head>
+<body>
+
+<div class="shell">
+  <nav class="toc" aria-label="Table of contents">
+    <div class="brand">Audit Index</div>
+    <ol>
+      <li><a href="#summary">Executive Summary</a></li>
+      <li><a href="#s1">Current Navigation Architecture</a></li>
+      <li><a href="#s2">Current Camera Architecture</a></li>
+      <li><a href="#s3">Current Routing Architecture</a></li>
+      <li><a href="#s4">Current GPS Architecture</a></li>
+      <li><a href="#s5">Problems Found</a></li>
+      <li><a href="#s6">Duplicated Logic</a></li>
+      <li><a href="#s7">Reusable Components</a></li>
+      <li><a href="#s8">Files That Should Become Global</a></li>
+      <li><a href="#s9">Recommended Engine Architecture</a></li>
+      <li><a href="#s10">Phase 2 Roadmap</a></li>
+      <li><a href="#appendix">Appendix — File Inventory</a></li>
+    </ol>
+    <div class="legend">Severity key</div>
+    <div class="legend-row"><span class="dot" style="background:var(--crit)"></span> Critical — breaks the target UX</div>
+    <div class="legend-row"><span class="dot" style="background:var(--warn)"></span> Moderate — inconsistent / wasteful</div>
+    <div class="legend-row"><span class="dot" style="background:var(--info)"></span> Informational</div>
+  </nav>
+
+  <main>
+    <header class="title-block">
+      <div class="eyebrow">Read-Only Architecture Audit</div>
+      <h1>The navigation system, as it actually runs today</h1>
+      <p class="subtitle">A file-by-file audit of every map, camera, GPS, and routing code path in the 2Go app — driver and passenger — prepared as groundwork for a single, reusable navigation engine. No code was changed to produce this report.</p>
+      <div class="meta-row">
+        <span class="pill">61 files inspected</span>
+        <span class="pill">3 platforms: iOS · Android · Web</span>
+        <span class="pill">Expo SDK 54 · react-native-maps · Zustand</span>
+        <span class="pill">2026-08-02</span>
+      </div>
+    </header>
+
+    <section id="summary">
+      <h2>Executive Summary</h2>
+      <p class="section-dek">The app does not have one navigation system — it has three. The map rendering layer is well-factored; the camera and routing logic layered on top of it is not.</p>
+
+      <div class="stat-strip">
+        <div class="stat"><div class="n crit">3×</div><div class="label">Independent heading-up camera implementations</div></div>
+        <div class="stat"><div class="n crit">5×</div><div class="label">Independent GPS watchers, no shared hook</div></div>
+        <div class="stat"><div class="n warn">4×</div><div class="label">Independent getDirections call sites</div></div>
+        <div class="stat"><div class="n">0</div><div class="label">Stores holding camera state</div></div>
+        <div class="stat"><div class="n crit">1</div><div class="label">Platform (web) where the imperative camera ref silently no-ops</div></div>
+        <div class="stat"><div class="n warn">2</div><div class="label">Confirmed dead files</div></div>
+      </div>
+
+      <p>The rendering layer — <code>Map.native.tsx</code>, its markers, and the Reanimated-driven <code>useAnimatedMarker</code> hook — is the one part of this system that already looks like a reusable engine. It is undermined from above: three screens (<code>navigate.tsx</code>, <code>(driver)/navigation.tsx</code>, <code>(driver)/trip.tsx</code>) each hand-roll their own copy of the Google-Maps-style heading-up follow camera, each with slightly different fallback logic and none sharing a hook. There is no camera-state store, no shared route-fetch hook, and no shared GPS-watch hook — every screen that needs a driver's live position starts its own <code>watchPositionAsync</code> subscription from scratch. The passenger's own trip screen (<code>app/(customer)/trip.tsx</code>) has <em>no</em> camera logic at all and no polyline, which is the single biggest reason the ride doesn't feel like Uber or Yango on the passenger side — there is nothing there generating that experience yet, not a bug suppressing it.</p>
+    </section>
+
+    <hr class="rule">
+
+    <section id="s1">
+      <h2><span class="num">01</span>Current Navigation Architecture</h2>
+      <p class="section-dek">Seven screens render a map. All but one funnel through the same native component — but each screen re-derives its own navigation behavior on top of it.</p>
+
+      <figure class="diagram-card">
+<pre class="mermaid">
+graph TD
+  subgraph Driver["Driver flows"]
+    DD["DriverDashboard<br/>(idle / online)"]
+    NAV["(driver)/navigation.tsx<br/>to pickup"]
+    TR["(driver)/trip.tsx<br/>in progress"]
+    TS["(driver)/trip-summary.tsx<br/>receipt · no map"]
+    DD -->|accept request| NAV --> TR --> TS
+  end
+  subgraph Passenger["Passenger flows"]
+    DISC["DiscoverScreen<br/>no map rendered"]
+    PH["PassengerHome<br/>plan + book"]
+    CT["(customer)/trip.tsx<br/>track driver"]
+    DISC -->|pick destination| PH -->|match found| CT
+  end
+  subgraph Standalone["Driver utility"]
+    NV["(tabs)/navigate.tsx<br/>point-to-point, no ride"]
+  end
+
+  MAP["Map.native.tsx / Map.web.tsx<br/>shared renderer"]
+  MPM["MapPickerModal.native.tsx<br/>independent MapView"]
+
+  DD --> MAP
+  NAV --> MAP
+  TR --> MAP
+  PH --> MAP
+  CT --> MAP
+  NV --> MAP
+  PH -.->|location picker| MPM
+  DISC -.->|location picker| MPM
+
+  MAP --> MK["Markers: AnimatedVehicleMarker ·<br/>NavigationArrowMarker · AnimatedUserLocation · CarMarker"]
+  MAP --> RSV["useRoadSnappedVehicle"]
+
+  classDef dead fill:#c1443c22,stroke:#c1443c,color:inherit;
+  class MPM dead
+</pre>
+        <figcaption>Component hierarchy — six screens share <code>&lt;Map&gt;</code>; the location-picker modal renders its own separate <code>MapView</code> instead.</figcaption>
+      </figure>
+
+      <p>Six of the seven map-bearing screens render the shared <code>Map</code> component (resolved by Metro to <code>Map.native.tsx</code> on device, <code>Map.web.tsx</code> on web). The seventh, <code>MapPickerModal.native.tsx</code>, bypasses it entirely and constructs its own <code>react-native-maps</code> <code>MapView</code> — duplicating the native-module lazy-require guard, the initial-region shape, and the zoom-delta constants that already live in <code>Map.native.tsx</code>. It has no navigation behavior itself (it's a drag-to-pick-a-point picker), so the duplication is contained, but it's a second map-construction code path that the audit found no reason for.</p>
+
+      <h3>What each screen actually is</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Screen</th><th>Role</th><th>Camera behavior</th><th>Renders route?</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">DriverDashboard.tsx</td><td>Idle/online home</td><td>Plain recenter on GPS fix, no tilt/heading</td><td>No — no destination yet</td></tr>
+            <tr><td class="mono">(driver)/navigation.tsx</td><td>Driving to pickup</td><td>Own heading-up follow effect (45° pitch, zoom 17)</td><td>Yes — fetched once, not re-fetched</td></tr>
+            <tr><td class="mono">(driver)/trip.tsx</td><td>Trip in progress</td><td>Own heading-up follow effect, bearing-fallback logic</td><td>Yes — <strong>re-fetched on every GPS fix</strong></td></tr>
+            <tr><td class="mono">(driver)/trip-summary.tsx</td><td>Post-trip receipt</td><td>No map at all</td><td>—</td></tr>
+            <tr><td class="mono">(tabs)/navigate.tsx</td><td>Free-form driver navigation</td><td>Own heading-up follow, inline in GPS callback; only caller of <code>fitToCoordinates</code></td><td>Yes — once, plus live reroute on restart</td></tr>
+            <tr><td class="mono">PassengerHome.tsx</td><td>Plan &amp; book a ride</td><td>No owned camera logic — relies on <code>Map.native.tsx</code>'s built-in fit/follow effects</td><td>Reads <code>routeCoordinates</code> from <code>rideStore</code></td></tr>
+            <tr><td class="mono">(customer)/trip.tsx</td><td>Track driver en route</td><td><strong>None</strong> — no <code>mapRef</code> exists in the file</td><td><strong>No</strong> — no polyline prop passed at all</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>The rendering layer itself is sound</h3>
+      <p><code>Map.native.tsx</code> is a genuinely well-built component: a <code>forwardRef</code> with an imperative handle (<code>animateToRegion</code>, <code>animateCamera</code>, <code>fitToCoordinates</code>, <code>getMapRef</code>), three internal auto-camera effects, zoom controls, H3 debug overlay, and a marker layer driven by Reanimated. The marker components (<code>AnimatedVehicleMarker</code>, <code>AnimatedUserLocation</code>, <code>NavigationArrowMarker</code>) all funnel through one shared hook, <code>useAnimatedMarker</code>, which does the actual work of gliding position and rotating heading along the shortest arc on the UI thread. That hook is the one piece of this system that already looks like the "engine" the redesign is aiming for — it's just scoped to markers, not the camera.</p>
+
+      <p><code>Map.web.tsx</code> is a parallel, materially thinner reimplementation: it is <strong>not</strong> wrapped in <code>forwardRef</code>, so any <code>mapRef.current?.animateCamera(...)</code> call from a parent screen silently no-ops on web (React drops the ref with a dev warning). It also has no <code>navigationArrowMode</code>, no vehicle fleet rendering, no H3 overlay, no ETA badge, and no Reanimated-driven marker glide — the driver icon on web is a statically-rotated view. Web is not a lost cause (the underlying `<GoogleMap>` supports everything native does), but today it is a second, much smaller implementation, not a platform variant of one engine.</p>
+    </section>
+
+    <hr class="rule">
+
+    <section id="s2">
+      <h2><span class="num">02</span>Current Camera Architecture</h2>
+      <p class="section-dek">Nobody owns the camera. Up to four independent writers can target the same <code>mapRef</code> depending on which screen is mounted.</p>
+
+      <figure class="diagram-card">
+<pre class="mermaid">
+sequenceDiagram
+  participant GPS as watchPositionAsync
+  participant Screen as Screen effect<br/>(heading-up follow)
+  participant Native as Map.native.tsx<br/>internal effects
+  participant Ref as mapRef.current
+
+  GPS->>Screen: new fix (lat/lng/heading)
+  Screen->>Ref: animateCamera({heading,pitch:45,zoom:17}, 700ms)
+  GPS-->>Native: driverLocation prop changes
+  Note over Native: autoFollowDriver defaults true
+  Native->>Ref: animateToRegion(sameish region, 500ms)
+  Note over Ref: two writers target the same camera<br/>on the same GPS event, on screens<br/>that don't opt out
+</pre>
+        <figcaption>What happens on a single GPS fix, on a screen that doesn't explicitly set <code>autoFollowDriver={false}</code>.</figcaption>
+      </figure>
+
+      <h3>Ownership, screen by screen</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Screen</th><th>Owns a <code>mapRef</code>?</th><th>Overrides <code>autoFollowDriver</code>?</th><th>Heading-up camera?</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">(driver)/navigation.tsx</td><td>Yes</td><td>Yes → false while navigating</td><td>Yes — own effect</td></tr>
+            <tr><td class="mono">(driver)/trip.tsx</td><td>Yes</td><td>Yes → false while navigating</td><td>Yes — own effect, richer bearing fallback</td></tr>
+            <tr><td class="mono">(tabs)/navigate.tsx</td><td>Yes</td><td>Yes → conditional on <code>isNavigating</code></td><td>Yes — inline in GPS callback</td></tr>
+            <tr><td class="mono">DriverDashboard.tsx</td><td>Yes</td><td class="mono" style="color:var(--warn)">No — not passed</td><td>No</td></tr>
+            <tr><td class="mono">PassengerHome.tsx</td><td>Yes (manual recenter only)</td><td class="mono" style="color:var(--warn)">No — not passed</td><td>No</td></tr>
+            <tr><td class="mono">(customer)/trip.tsx</td><td class="mono" style="color:var(--crit)">No mapRef exists</td><td class="mono" style="color:var(--warn)">No — not passed</td><td>No</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p><code>Map.native.tsx</code> defaults <code>autoFollowDriver</code> to <strong>true</strong>. Every screen that passes a <code>driverLocation</code> prop without explicitly turning that off inherits an automatic <code>animateToRegion</code> recenter on every GPS fix, running underneath whatever camera logic the screen itself owns. The three driver-navigation screens know about this and turn it off. <code>DriverDashboard.tsx</code> does not — it runs its own <code>animateToRegion</code> call inside its GPS callback (600ms) <em>while</em> <code>Map.native.tsx</code>'s own effect fires the same call (500ms default) on the same event, targeting the same region. It's low-stakes today because both calls compute the same destination, but it's two writers doing the same job for no reason, and the pattern is what causes the camera to feel like it's "fighting itself" — a symptom, not the root problem.</p>
+
+      <h3>Why it doesn't feel like Uber</h3>
+      <div class="finding crit">
+        <div class="fhead"><span class="ftitle">Three separate heading-up implementations, not one</span><span class="chip crit"><span class="dot"></span>Critical</span></div>
+        <p><code>navigation.tsx</code>, <code>trip.tsx</code>, and <code>navigate.tsx</code> each independently call <code>animateCamera({center, heading, pitch: 45, altitude: 500, zoom: 17}, 700)</code> — same shape, same constants, three different files, three different heading-fallback strategies (none / bearing-to-next-maneuver-if-heading≤1 / bearing-to-next-maneuver-if-heading&lt;1). Any tuning pass ("make the follow feel smoother") has to be applied three times and will drift the moment one file is edited and the others aren't.</p>
+        <p class="evidence">app/(driver)/navigation.tsx:238–252 · app/(driver)/trip.tsx:248–272 · app/(tabs)/navigate.tsx:101–123</p>
+      </div>
+      <div class="finding crit">
+        <div class="fhead"><span class="ftitle">The passenger never gets a navigation camera at all</span><span class="chip crit"><span class="dot"></span>Critical</span></div>
+        <p><code>(customer)/trip.tsx</code> has no <code>mapRef</code>, no heading, no pitch, no polyline. The only camera behavior it gets is <code>Map.native.tsx</code>'s default flat recenter-on-driver-move. This is the single largest gap between the current app and an Uber/Yango-style experience — the customer-facing trip screen is the one screen a rider spends the most time looking at, and it currently has zero navigation-camera code written for it.</p>
+        <p class="evidence">app/(customer)/trip.tsx — no mapRef declared anywhere in the file</p>
+      </div>
+      <div class="finding warn">
+        <div class="fhead"><span class="ftitle">Two fits can race in the same window</span><span class="chip warn"><span class="dot"></span>Moderate</span></div>
+        <p>In <code>navigate.tsx</code>, <code>Map.native.tsx</code>'s own internal "fit to pickup+destination" effect and <code>navigate.tsx</code>'s own <code>calculateRoute()</code>-triggered <code>fitToCoordinates</code> call are both wired to the same <code>pickup</code>/<code>destination</code> change, with <em>different edge padding</em> and <em>different coordinate sets</em> (two endpoints vs. the full route polyline). In practice <code>Map.native.tsx</code>'s effect self-excludes once <code>driverLocation</code> is populated, so the window is narrow — but it exists on fresh mount, before the first GPS fix, if a previous start/destination is already remembered.</p>
+        <p class="evidence">src/components/map/Map.native.tsx:220–243 vs app/(tabs)/navigate.tsx:148–172</p>
+      </div>
+      <div class="finding info">
+        <div class="fhead"><span class="ftitle">Magic camera constants, never centralized</span><span class="chip info"><span class="dot"></span>Informational</span></div>
+        <p>The zoom-delta pair <code>latitudeDelta: 0.0035, longitudeDelta: 0.0016</code> ("street-level zoom") is a bare literal in at least 8 places across <code>Map.native.tsx</code>, <code>PassengerHome.tsx</code>, <code>DriverDashboard.tsx</code>, and <code>MapPickerModal.native.tsx</code>. <code>NAV_CAMERA_PITCH/ALTITUDE/ZOOM</code> (45/500/17) are declared as named constants independently in two files and inlined as raw numbers in a third.</p>
+      </div>
+    </section>
+
+    <hr class="rule">
+
+    <section id="s3">
+      <h2><span class="num">03</span>Current Routing Architecture</h2>
+      <p class="section-dek">Four independent call sites hit the Google Directions API. Recalculation policy differs screen to screen, with no shared debounce.</p>
+
+      <figure class="diagram-card">
+<pre class="mermaid">
+graph LR
+  RPS["RidePlannerSheet.tsx<br/>pickup+destination effect"] -->|getDirections| GA["Google Directions API<br/>via lib/google/mapsApi.ts"]
+  NV["navigate.tsx<br/>on selection change"] -->|getDirections| GA
+  NAV["navigation.tsx<br/>once, guarded by<br/>routeCoordinates.length===0"] -->|getDirections| GA
+  TR["trip.tsx<br/>on EVERY gps fix,<br/>no guard"] -->|getDirections| GA
+  GA -->|polyline.decode| RS["routeCoordinates: LatLng[]"]
+  RPS -->|setRouteData| RIDE[("rideStore")]
+  RIDE -->|routeCoordinates prop| MAP["Map.native.tsx"]
+  NV --> MAPd["Map.native.tsx"]
+  NAV --> MAPd
+  TR --> MAPd
+  classDef risk fill:#a56a1722,stroke:#a56a17,color:inherit;
+  class TR risk
+</pre>
+        <figcaption>No shared route-fetch hook — each caller re-implements the fetch, the polyline decode step is common (all go through <code>mapsApi.ts</code>), but recalculation policy is not.</figcaption>
+      </figure>
+
+      <h3>Recalculation policy is inconsistent by accident, not design</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Caller</th><th>Recalculates when</th><th>Debounced?</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">RidePlannerSheet.tsx:150–172</td><td><code>pickup</code>/<code>destination</code> change (any amount)</td><td>No</td></tr>
+            <tr><td class="mono">(tabs)/navigate.tsx:142–172</td><td>Selection change, while not navigating</td><td>No</td></tr>
+            <tr><td class="mono">(driver)/navigation.tsx:119–147</td><td>Once — guarded by <code>routeCoordinates.length === 0</code></td><td>N/A (fires once)</td></tr>
+            <tr><td class="mono">(driver)/trip.tsx:181–198</td><td><strong>Every GPS fix</strong> — no guard beyond a race-safety cancel flag</td><td class="mono" style="color:var(--crit)">No</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>The Directions call itself is centralized correctly — every one of these four sites goes through the same <code>getDirections()</code> in <code>src/lib/google/mapsApi.ts</code>, which does the actual polyline decoding via <code>@googlemaps/polyline-codec</code>. What isn't centralized is <em>when</em> to call it. <code>trip.tsx</code>'s effect depends on <code>driverLocation.lat/lng</code> and re-fires on every accepted fix from a 1-second-interval GPS watcher — in the worst case that's a live Directions API call roughly once per second for the duration of a trip, guarded only by a <code>cancelled</code> flag for race safety, not a rate limit or distance-moved threshold. <code>navigation.tsx</code> solves the same underlying problem (driver moved, does the route need updating?) with a one-shot guard instead, which means it will show a stale route if the driver goes off-route. Neither is wrong for its own screen in isolation; the risk is that a future change to one will not propagate to the other three, because there's no shared policy to change.</p>
+
+      <p><code>src/lib/google/mapsApi.ts</code> itself has no caching, memoization, or client-side rate limiting anywhere — every exported function (<code>getDirections</code>, <code>getPlaceAutocomplete</code>, <code>geocodeAddress</code>, <code>reverseGeocode</code>, <code>getDistanceMatrix</code>, <code>snapToRoads</code>) is a direct, uncached <code>fetch</code>. Error handling is consistent (try/catch, log, safe fallback — never throws except on a missing API key), which is good hygiene, but it also means nothing stops a caller from hammering the endpoint the way <code>trip.tsx</code>'s effect currently can.</p>
+
+      <h3>Road-snapping is two different things wearing similar names</h3>
+      <p><code>useRoadSnappedVehicle</code> snaps a moving vehicle's GPS fix onto an <em>already-fetched route polyline</em> using local point-to-segment projection math (no network call) — used to smooth the driver marker. <code>useSnappedLocation</code> snaps the <em>customer's own</em> position onto the nearest real road via a paid Google Roads API call — used only by <code>PassengerHome</code> for the map display. They solve genuinely different problems for different actors, but the naming makes them easy to confuse, and <code>routeSnapping.ts</code>'s general-purpose <code>calculateBearing()</code> — used in four unrelated files — is bundled inside the same module as the polyline-snapping algorithm it has nothing to do with.</p>
+    </section>
+
+    <hr class="rule">
+
+    <section id="s4">
+      <h2><span class="num">04</span>Current GPS Architecture</h2>
+      <p class="section-dek">Five independent <code>watchPositionAsync</code> subscriptions. No shared hook, no shared accuracy policy, no leaks found — but two screens tear down and restart their watcher on every UI toggle.</p>
+
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Location</th><th>Accuracy / interval</th><th>Effect deps</th><th>Cleanup</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">useCurrentLocation.ts:94</td><td>Balanced · 60s / 50m</td><td><code>[]</code> — mounts once</td><td>Correct — <code>isMounted</code> guard + <code>subscription.remove()</code></td></tr>
+            <tr><td class="mono">(driver)/navigation.tsx:82</td><td>BestForNavigation · 1s / 1m</td><td><code>[]</code> — mounts once</td><td>Correct</td></tr>
+            <tr><td class="mono">(driver)/trip.tsx:148</td><td>BestForNavigation · 1s / 1m</td><td><code>[]</code> — mounts once</td><td>Correct</td></tr>
+            <tr><td class="mono">(tabs)/navigate.tsx:80</td><td>BestForNavigation · 1s / 1m</td><td class="mono" style="color:var(--warn)"><code>[isNavigating, isAutoFollow]</code></td><td>Correct, but the whole watcher is torn down and recreated on every toggle</td></tr>
+            <tr><td class="mono">DriverDashboard.tsx:105</td><td>3-tier fallback: High → Balanced → Low</td><td class="mono" style="color:var(--warn)"><code>[isOnline, isAutoFollow]</code></td><td>Correct, same tear-down-on-toggle pattern</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>No leaks and no duplicate concurrent watches were found — every subscription is properly stored in a ref/variable and removed in its effect's cleanup function. The design issue is different: there is no shared "watch my location" hook with a configurable accuracy profile, so five files each re-derive the permission request → initial fix → watcher → fallback sequence independently, with genuinely different accuracy tiers and intervals that were presumably each tuned for their own screen's needs but were never reconciled into an explicit policy (e.g. "planning" screens get <code>Balanced/60s</code>, "actively navigating" screens get <code>BestForNavigation/1s</code>). <code>navigate.tsx</code> and <code>DriverDashboard.tsx</code> additionally key their effect on UI state (<code>isAutoFollow</code>, <code>isOnline</code>) rather than mounting once, which means toggling "follow me" restarts the entire GPS subscription rather than just changing how the existing fixes are consumed — unnecessary permission/watcher churn.</p>
+
+      <p><code>watchHeadingAsync</code> (the device compass API) is never called anywhere in the codebase — heading is always either read off the GPS fix's own <code>heading</code> field or derived client-side via <code>calculateBearing()</code> toward the next route point. This is a reasonable choice (compass heading is noisy at low speed and wrong when stationary) but it means heading quality is entirely dependent on GPS fix quality and the bearing-fallback logic each screen wrote for itself — which, per §2, differs between the three driver-navigation screens.</p>
+
+      <p>Separately from all of the above, <code>useDriverTelemetryPing</code> runs its own 5-second <code>setInterval</code> (not a location watcher) that pushes the driver's last-known lat/lng/heading to the backend order row — this is the actual mechanism that makes the driver visible to the passenger in <code>(customer)/trip.tsx</code>, and it is completely decoupled from the on-screen camera-follow GPS watchers described above.</p>
+    </section>
+
+    <hr class="rule">
+
+    <section id="s5">
+      <h2><span class="num">05</span>Problems Found</h2>
+      <p class="section-dek">Consolidated across camera, routing, GPS, state, platform parity, and dead code — ranked by how directly each blocks an Uber/Yango-grade experience.</p>
+
+      <div class="finding crit">
+        <div class="fhead"><span class="ftitle">No navigation camera exists for the passenger</span><span class="chip crit"><span class="dot"></span>Critical</span></div>
+        <p>Covered in §2 — repeated here because it is the highest-impact single fact in this audit for "why doesn't this feel like Uber." Nothing needs to be un-broken; a navigation camera and live polyline simply need to be built for <code>(customer)/trip.tsx</code>.</p>
+      </div>
+      <div class="finding crit">
+        <div class="fhead"><span class="ftitle"><code>Map.web.tsx</code> silently drops all imperative camera calls</span><span class="chip crit"><span class="dot"></span>Critical</span></div>
+        <p>Because it's a plain function component, not <code>forwardRef</code>-wrapped, every <code>mapRef.current?.animateCamera/animateToRegion/fitToCoordinates</code> call from <code>navigate.tsx</code>, <code>trip.tsx</code>, and <code>navigation.tsx</code> no-ops on web with only a dev-console warning. Auto-follow, compass-reset, and route-fit-to-bounds do not function on web today for any of these three screens.</p>
+        <p class="evidence">src/components/map/Map.web.tsx — component not wrapped in React.forwardRef</p>
+      </div>
+      <div class="finding crit">
+        <div class="fhead"><span class="ftitle">Route recalculates on every GPS fix in <code>trip.tsx</code>, unthrottled</span><span class="chip crit"><span class="dot"></span>Critical</span></div>
+        <p>A live Directions API call roughly once per second, for the duration of every trip, is a real cost and a real latency/flicker risk on the polyline. See §3.</p>
+        <p class="evidence">app/(driver)/trip.tsx:181–198</p>
+      </div>
+      <div class="finding warn">
+        <div class="fhead"><span class="ftitle">Three duplicated heading-up camera effects</span><span class="chip warn"><span class="dot"></span>Moderate</span></div>
+        <p>See §2 and §6. Not broken today, but every future camera tuning change has to be applied three times by hand.</p>
+      </div>
+      <div class="finding warn">
+        <div class="fhead"><span class="ftitle">Navigation state has no single owner</span><span class="chip warn"><span class="dot"></span>Moderate</span></div>
+        <p>Neither <code>rideStore</code> nor <code>driverStore</code> holds camera state, and neither holds turn-by-turn route/step state — that lives only as local <code>useState</code> inside three separate screens. <code>driverStore.tripStatus</code> includes a <code>'navigating_to_pickup'</code> value, the closest thing to an "isNavigating" flag anywhere, but it isn't shared with <code>rideStore</code> and there's no boolean navigation-mode flag anywhere in the store layer.</p>
+        <p class="evidence">src/state/rideStore.ts:51–137 · src/state/driverStore.ts:35–90</p>
+      </div>
+      <div class="finding warn">
+        <div class="fhead"><span class="ftitle">Two screens tear down their GPS watcher on every UI toggle</span><span class="chip warn"><span class="dot"></span>Moderate</span></div>
+        <p><code>navigate.tsx</code> and <code>DriverDashboard.tsx</code> key their location-watch effect on <code>isAutoFollow</code>/<code>isOnline</code>, restarting the whole subscription (and re-requesting a fix) instead of mounting once. See §4.</p>
+      </div>
+      <div class="finding warn">
+        <div class="fhead"><span class="ftitle">Two independent GPS reads feed the same screen</span><span class="chip warn"><span class="dot"></span>Moderate</span></div>
+        <p><code>PassengerHome.tsx</code> displays position via the road-snapped <code>useSnappedLocation()</code>, but its own "recenter" button does a separate one-shot <code>getCurrentPositionAsync</code>/<code>getLastKnownPositionAsync</code> read. <code>RidePlannerSheet.tsx</code> auto-populates pickup from raw <code>useCurrentLocation()</code>, not the road-snapped version shown on the map. These can disagree by a small but visible margin.</p>
+        <p class="evidence">src/features/passenger/PassengerHome.tsx:229–255 vs :140 · src/features/passenger/components/RidePlannerSheet.tsx:41,123–140</p>
+      </div>
+      <div class="finding warn">
+        <div class="fhead"><span class="ftitle">Redundant camera write on <code>DriverDashboard</code></span><span class="chip warn"><span class="dot"></span>Moderate</span></div>
+        <p><code>Map.native.tsx</code>'s default <code>autoFollowDriver=true</code> plus this screen's own <code>animateToRegion</code> call both fire on the same GPS event, targeting the same region, at slightly different durations (500ms vs 600ms). See §2.</p>
+      </div>
+      <div class="finding info">
+        <div class="fhead"><span class="ftitle">No caching/rate-limiting on any Google Maps API call</span><span class="chip info"><span class="dot"></span>Informational</span></div>
+        <p><code>mapsApi.ts</code> issues a direct uncached <code>fetch</code> for every Directions, Places, Geocoding, and Roads call. Not a bug per se, but combined with the unthrottled <code>trip.tsx</code> recalculation above, it's the point where an engine-level fix (shared route hook with built-in debounce) pays for itself directly in API cost.</p>
+      </div>
+      <div class="finding info">
+        <div class="fhead"><span class="ftitle">Web map styling diverges from native</span><span class="chip info"><span class="dot"></span>Informational</span></div>
+        <p><code>mapStyle.ts</code>'s custom building/POI styling is applied only in <code>Map.web.tsx</code> — native has no equivalent, so the two platforms render visually differently even where feature parity exists.</p>
+      </div>
+      <div class="finding info">
+        <div class="fhead"><span class="ftitle">Two dead files, confirmed by full-repo import search</span><span class="chip info"><span class="dot"></span>Informational</span></div>
+        <p><code>src/assets/svg/NavigationArrow.tsx</code> — a fully-built gradient navigation-arrow icon with zero importers anywhere, superseded by <code>NavigationArrowMarker</code>'s simpler inline chevron. <code>src/services/discoveryEngine.ts</code> — operates on a hardcoded mock driver pool, reachable only behind the H3 debug toggle, and never wired into the real matching path (<code>fetchNearbyDriverPushTokens</code> in <code>driverOrders.ts</code> is the real implementation).</p>
+      </div>
+    </section>
+
+    <hr class="rule">
+
+    <section id="s6">
+      <h2><span class="num">06</span>Duplicated Logic</h2>
+      <p class="section-dek">What's copy-pasted (or close enough to it) versus what's just parallel-shaped by coincidence.</p>
+
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Logic</th><th>Copies</th><th>Verdict</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>Heading-up follow camera<br><span class="mono" style="background:none;padding:0">(pitch 45 / alt 500 / zoom 17)</span></td>
+              <td class="mono">navigation.tsx:238 · trip.tsx:248 · navigate.tsx:101</td>
+              <td>Real duplication — collapse into one hook/controller</td>
+            </tr>
+            <tr>
+              <td>Auto-follow-resume-after-5s idle timer</td>
+              <td class="mono">navigation.tsx · trip.tsx · navigate.tsx · DriverDashboard.tsx</td>
+              <td>Real duplication — same 5000ms/1000ms constants, four copies</td>
+            </tr>
+            <tr>
+              <td>0.0035 / 0.0016 zoom-delta pair</td>
+              <td class="mono">Map.native.tsx ×4 · PassengerHome · DriverDashboard · MapPickerModal ×2</td>
+              <td>Magic-number duplication — one shared constant needed</td>
+            </tr>
+            <tr>
+              <td>Vehicle marker wrapper<br>(freeze-ref + Reanimated + memoized icon)</td>
+              <td class="mono">AnimatedVehicleMarker.tsx · NavigationArrowMarker.tsx</td>
+              <td>Shared via <code>useAnimatedMarker</code> already — the boilerplate around it could still collapse into one component with a <code>mode</code> prop</td>
+            </tr>
+            <tr>
+              <td>Pulse-halo animation<br>(Reanimated shared value → withRepeat → withTiming)</td>
+              <td class="mono">UserLocationMarker.tsx · SearchPulseMarker.tsx</td>
+              <td>Same shape, different constants (one hardcodes 1600ms, the other imports the shared 2000ms constant) — worth a shared <code>usePulseHalo</code> hook</td>
+            </tr>
+            <tr>
+              <td>Spherical-trig math</td>
+              <td class="mono">distance.ts (haversine) · routeSnapping.ts (bearing + planar projection)</td>
+              <td>Two independent hand-rolled implementations, no shared <code>toRadians()</code> — not wrong, but split for no reason</td>
+            </tr>
+            <tr>
+              <td><code>getDirections()</code> call + local route state</td>
+              <td class="mono">RidePlannerSheet · navigate.tsx · navigation.tsx · trip.tsx</td>
+              <td>Same API call, four different recalculation policies and four separate local <code>useState</code> stores for the result</td>
+            </tr>
+            <tr>
+              <td>GPS watcher acquisition (permission → fix → watch → fallback)</td>
+              <td class="mono">useCurrentLocation.ts · navigation.tsx · trip.tsx · navigate.tsx · DriverDashboard.tsx</td>
+              <td>Five independent implementations of the same sequence, different accuracy tiers</td>
+            </tr>
+            <tr>
+              <td><code>NEARBY_HEX_RING = 6</code></td>
+              <td class="mono">driverStore.ts:28 · driverOrders.ts:8</td>
+              <td>Comment-synced literal, not a shared constant — low risk, easy fix</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <hr class="rule">
+
+    <section id="s7">
+      <h2><span class="num">07</span>Reusable Components</h2>
+      <p class="section-dek">What's already engine-grade and should survive the redesign untouched.</p>
+
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>File</th><th>Why it's already reusable</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">hooks/useAnimatedMarker.ts</td><td>Canonical Reanimated position/rotation interpolation. Every animated marker already goes through it.</td></tr>
+            <tr><td class="mono">components/map/markers/animatedMarker.ts</td><td>The guarded <code>AnimatedMapMarker</code> factory that prevents three components from each writing their own native-module guard.</td></tr>
+            <tr><td class="mono">lib/mapAnimation.ts</td><td>Shared marker-animation constants + <code>normalizeHeading</code>/<code>shortestRotation</code> worklets — fully adopted by all four marker-animation consumers.</td></tr>
+            <tr><td class="mono">lib/distance.ts</td><td>The one geo-math utility used consistently everywhere distance is needed (10 consumers) — no reimplementations found.</td></tr>
+            <tr><td class="mono">lib/maneuverIcon.ts</td><td>Consistently used by all three turn-by-turn screens, zero duplication.</td></tr>
+            <tr><td class="mono">lib/google/mapsApi.ts</td><td>Sole wrapper for every Google Maps REST call — well-factored even though it lacks caching (an engine-level concern, not a rewrite).</td></tr>
+            <tr><td class="mono">hooks/useCurrentLocation.ts</td><td>Correctly-cleaned-up base GPS hook with geocoding + H3 indexing — the template the other four watchers should have been built from.</td></tr>
+            <tr><td class="mono">hooks/useRoadSnappedVehicle.ts</td><td>Self-contained, single-purpose, no external duplication (minor: mutates a ref during render — low-priority fix).</td></tr>
+            <tr><td class="mono">components/map/CompassButton.tsx</td><td>Pure presentational HUD control, already screen-agnostic.</td></tr>
+            <tr><td class="mono">components/map/MapPlaceholder.tsx</td><td>Self-contained fallback, reused across both platform map implementations.</td></tr>
+            <tr><td class="mono">core/spatialEngine.ts</td><td>Thin, focused H3 wrapper reused by both stores and two services.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <hr class="rule">
+
+    <section id="s8">
+      <h2><span class="num">08</span>Files That Should Become Global</h2>
+      <p class="section-dek">Two lists: existing files that are already global-shaped and should be formally promoted, and the modules that don't exist yet — the actual gap this audit turned up.</p>
+
+      <h3>Already exists — promote to explicit shared status</h3>
+      <ul>
+        <li><code>useAnimatedMarker.ts</code>, <code>animatedMarker.ts</code>, <code>lib/mapAnimation.ts</code> — the marker-animation trio, already global in practice.</li>
+        <li><code>useCurrentLocation.ts</code> — should become the base every GPS-consuming screen builds on, instead of four screens reimplementing the permission/watch/fallback sequence next to it.</li>
+        <li><code>lib/distance.ts</code>, <code>lib/maneuverIcon.ts</code>, <code>lib/google/mapsApi.ts</code> — keep as-is, already the single source of truth for their concern.</li>
+      </ul>
+
+      <h3>Does not exist yet — the real gap</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Missing module</th><th>Fills the gap left by</th></tr></thead>
+          <tbody>
+            <tr><td>A camera-animation module (mirroring <code>mapAnimation.ts</code>'s pattern, but for the <em>camera</em>, not markers)</td><td>Three independent heading-up camera effects (§2, §6)</td></tr>
+            <tr><td>A shared GPS-watch hook with a configurable accuracy/interval profile</td><td>Five independent <code>watchPositionAsync</code> call sites (§4)</td></tr>
+            <tr><td>A shared route-fetch hook with one recalculation policy + debounce</td><td>Four independent <code>getDirections</code> call sites with four different recalculation rules (§3)</td></tr>
+            <tr><td>A single navigation state slice (mode, route, steps, cameraMode, isNavigating)</td><td>State currently split across <code>rideStore</code>, <code>driverStore</code>, and three screens' local <code>useState</code> (§5)</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <hr class="rule">
+
+    <section id="s9">
+      <h2><span class="num">09</span>Recommended Global Navigation Engine Architecture</h2>
+      <p class="section-dek">A conceptual target only — no code. The shape below is what the audit above implies is missing, built from the pieces already proven to work.</p>
+
+      <figure class="diagram-card">
+<pre class="mermaid">
+graph TD
+  subgraph Engine["useNavigationEngine — one hook"]
+    GW["useGpsWatch<br/>(accuracy profile: planning | navigating)"]
+    RE["useRouteEngine<br/>(getDirections + recalculation policy + debounce)"]
+    CC["useCameraController<br/>(camera profiles: idle · follow · heading-up · fit-bounds)"]
+  end
+  STORE[("navigationStore (zustand)<br/>mode · route · steps · activeStep ·<br/>cameraMode · isAutoFollow")]
+  NAVMAP["&lt;NavigationMap&gt;<br/>declarative mode prop,<br/>wraps Map.native / Map.web"]
+
+  GW --> STORE
+  RE --> STORE
+  CC --> STORE
+  STORE --> NAVMAP
+
+  NAVMAP -.replaces imperative ref calls in.-> S1["(driver)/navigation.tsx"]
+  NAVMAP -.replaces imperative ref calls in.-> S2["(driver)/trip.tsx"]
+  NAVMAP -.replaces imperative ref calls in.-> S3["(tabs)/navigate.tsx"]
+  NAVMAP -.new capability for.-> S4["(customer)/trip.tsx"]
+</pre>
+        <figcaption>Every existing marker/animation piece from §7 slots under this unchanged — this is additive, not a rewrite of the rendering layer.</figcaption>
+      </figure>
+
+      <p><strong>useCameraController</strong> is the piece that doesn't exist today and is the direct answer to the "why doesn't it feel like Google Maps" question — it would encode the handful of camera profiles this audit found scattered across three files (idle recenter, follow, heading-up-navigating, fit-to-bounds) as named, tunable presets instead of ad hoc <code>animateCamera</code> calls, so a single change to "how navigation-mode feels" applies everywhere at once. <strong>useRouteEngine</strong> would own the one decision every current screen makes differently — when to refetch — as an explicit policy (distance-moved threshold + minimum interval) instead of "once" in one screen and "every fix" in another. <strong>useGpsWatch</strong> would let a screen declare "I'm in planning mode" or "I'm actively navigating" and get the right accuracy tier without re-deriving the permission/fallback sequence.</p>
+
+      <p>A single <code>navigationStore</code> slice would give <code>routeCoordinates</code>/<code>steps</code>/<code>activeStepIndex</code>/<code>isNavigating</code> one home instead of three, and would let <code>(customer)/trip.tsx</code> read the same shape of data the driver screens already produce — the store update, not new per-screen code, is what would let the passenger screen finally show a moving polyline and a following camera.</p>
+
+      <p><code>&lt;NavigationMap&gt;</code> is not a replacement for <code>Map.native.tsx</code>/<code>Map.web.tsx</code> — it's a thin composition layer on top of them that takes a declarative <code>mode</code> (<code>"idle" | "previewing" | "navigating"</code>) instead of requiring each screen to hold a <code>mapRef</code> and call imperative methods on it directly. Fixing <code>Map.web.tsx</code>'s missing <code>forwardRef</code> is a prerequisite either way, independent of whether this composition layer gets built.</p>
+    </section>
+
+    <hr class="rule">
+
+    <section id="s10">
+      <h2><span class="num">10</span>Phase 2 Roadmap</h2>
+      <p class="section-dek">Ordered so each step is buildable and testable against the current app before the next one starts — nothing here is a big-bang rewrite.</p>
+
+      <ol class="roadmap">
+        <li>
+          <div class="step-title">Fix the <code>Map.web.tsx</code> forwardRef gap</div>
+          <div class="step-body"><p>Smallest, highest-leverage fix in the whole audit — every downstream camera-controller step benefits from web not silently dropping camera calls. Independent of everything else below.</p></div>
+        </li>
+        <li>
+          <div class="step-title">Extract the camera-animation module</div>
+          <div class="step-body"><p>Pull the shared shape out of the three existing heading-up implementations (<code>navigation.tsx</code>, <code>trip.tsx</code>, <code>navigate.tsx</code>) into named camera profiles, mirroring how <code>mapAnimation.ts</code> already centralizes marker-animation constants.</p></div>
+        </li>
+        <li>
+          <div class="step-title">Extract the shared GPS-watch hook</div>
+          <div class="step-body"><p>Consolidate the five independent <code>watchPositionAsync</code> call sites behind one hook with an explicit accuracy-profile argument, using <code>useCurrentLocation.ts</code>'s cleanup pattern as the template.</p></div>
+        </li>
+        <li>
+          <div class="step-title">Extract the shared route-fetch hook</div>
+          <div class="step-body"><p>One recalculation policy (distance-moved threshold + debounce) replacing the four current ad hoc rules — this directly closes the <code>trip.tsx</code> per-second-refetch issue in §5.</p></div>
+        </li>
+        <li>
+          <div class="step-title">Introduce the single navigation state slice</div>
+          <div class="step-body"><p>Consolidate route/steps/activeStep/cameraMode/isNavigating into one store shape, replacing the local <code>useState</code> copies in the three driver-navigation screens.</p></div>
+        </li>
+        <li>
+          <div class="step-title">Build <code>&lt;NavigationMap&gt;</code> on top of the three hooks above</div>
+          <div class="step-body"><p>The declarative composition layer described in §9, wrapping the already-solid <code>Map.native.tsx</code>/<code>Map.web.tsx</code> — not replacing them.</p></div>
+        </li>
+        <li>
+          <div class="step-title">Migrate <code>(tabs)/navigate.tsx</code> first</div>
+          <div class="step-body"><p>It's already the most feature-complete screen and the only current caller of <code>fitToCoordinates</code> from application code — the best proving ground before touching the two trip-critical driver screens.</p></div>
+        </li>
+        <li>
+          <div class="step-title">Migrate <code>(driver)/navigation.tsx</code> and <code>(driver)/trip.tsx</code></div>
+          <div class="step-body"><p>Once the engine has been validated on the standalone screen, retire their hand-rolled camera effects and local route state in favor of the shared hooks.</p></div>
+        </li>
+        <li>
+          <div class="step-title">Give <code>(customer)/trip.tsx</code> a real navigation camera for the first time</div>
+          <div class="step-body"><p>This is new capability, not a migration — wire it to the same <code>&lt;NavigationMap&gt;</code>/store the driver screens now use, reading the driver's live position that already flows in via realtime order updates. This is the step that most directly makes the ride feel like Uber/Yango from the passenger's seat.</p></div>
+        </li>
+        <li>
+          <div class="step-title">Collapse marker-wrapper duplication</div>
+          <div class="step-body"><p><code>AnimatedVehicleMarker</code>/<code>NavigationArrowMarker</code> into one component with a <code>mode</code> prop; <code>UserLocationMarker</code>/<code>SearchPulseMarker</code>'s pulse-halo into one <code>usePulseHalo</code> hook. Cosmetic relative to the steps above — do it once the engine underneath has stopped moving.</p></div>
+        </li>
+        <li>
+          <div class="step-title">Sweep dead code and magic constants</div>
+          <div class="step-body"><p>Remove <code>assets/svg/NavigationArrow.tsx</code> and <code>discoveryEngine.ts</code>'s mock path (or wire the latter to the real backend if it was meant to ship), centralize the <code>0.0035/0.0016</code> zoom delta and <code>NEARBY_HEX_RING</code> constant. Lowest risk, do last so nothing mid-migration depends on the files being removed.</p></div>
+        </li>
+      </ol>
+    </section>
+
+    <hr class="rule">
+
+    <section id="appendix">
+      <h2>Appendix — Full File Inventory</h2>
+      <p class="section-dek">The complete per-file findings this report was built from. Collapsed by default — expand a group for exact line-level evidence.</p>
+
+      <details class="appendix">
+        <summary><span>A. Map rendering layer — components, markers, hooks</span><span class="count">22 files</span></summary>
+        <div class="inner">
+          <p><strong>Live, reusable, no issues:</strong> <code>Map.native.tsx</code> (full imperative camera API), <code>CompassButton.tsx</code>, <code>MapPlaceholder.tsx</code>, <code>animatedMarker.ts</code>, <code>useAnimatedMarker.ts</code>, <code>useRoadSnappedVehicle.ts</code>, <code>useCurrentLocation.ts</code>, <code>useDriverTelemetryPing.ts</code>, <code>markers/index.ts</code>, <code>ArrivalTimeMarker.tsx</code> (native-only, no web equivalent).</p>
+          <p><strong>Reduced/parallel implementation:</strong> <code>Map.web.tsx</code> — not forwardRef-wrapped; missing <code>navigationArrowMode</code>, vehicle fleet, H3 overlay, direction arrows, ETA badge; driver marker has no Reanimated glide on web.</p>
+          <p><strong>Type-only, runtime-dead value export:</strong> <code>Map.tsx</code> — its <code>export {'{'} Map {'}'} from './Map.native'</code> is unreachable at runtime (Metro resolves the bare <code>./Map</code> specifier straight to the platform file first) but the file must stay for TypeScript, which has no platform-aware resolution configured.</p>
+          <p><strong>Confirmed dead code:</strong> <code>src/assets/svg/NavigationArrow.tsx</code> — zero importers anywhere in <code>src/</code> or <code>app/</code>, superseded by <code>NavigationArrowMarker</code>'s inline chevron.</p>
+          <p><strong>Vestigial exports:</strong> <code>CarMarker.tsx</code>'s <code>color</code> prop and <code>VEHICLE_MARKER_COLORS</code> — documented in-code as unused, kept only so old call sites don't break.</p>
+          <p><strong>Structural near-duplicates:</strong> <code>AnimatedVehicleMarker.tsx</code> and <code>NavigationArrowMarker.tsx</code> share the same wrapper shape (frozen-initial-ref + <code>useAnimatedMarker</code> + memoized icon), differing only in the rendered icon. <code>SearchPulseMarker.tsx</code> and <code>UserLocationMarker.tsx</code> independently implement the same Reanimated pulse-halo pattern with different duration constants (1600ms hardcoded vs. the shared 2000ms constant).</p>
+          <p><strong>Naming collision, not duplication:</strong> <code>useSnappedLocation</code> (customer, Roads API) vs. <code>useRoadSnappedVehicle</code> (driver/vehicle, local polyline math) — different actors, different mechanisms, similar names.</p>
+          <p><strong>Inconsistent animation library:</strong> <code>useTurnPreview.ts</code> uses the legacy React Native <code>Animated</code> API while every other animated map element uses <code>react-native-reanimated</code>.</p>
+          <p><strong>React-purity note:</strong> <code>useRoadSnappedVehicle.ts</code> mutates a ref during render rather than in an effect — low-priority, single-consumer, not currently causing visible issues.</p>
+        </div>
+      </details>
+
+      <details class="appendix">
+        <summary><span>B. Navigation, trip, and picker screens</span><span class="count">16 files</span></summary>
+        <div class="inner">
+          <p><strong>Full grep inventory of every camera/location call site</strong> (fitToCoordinates, animateCamera, watchPositionAsync, animateToRegion) is captured in §2–§4 above.</p>
+          <p><code>(driver)/navigation.tsx</code> — heading-up follow effect, one-shot route fetch, <code>navigationArrowMode</code> toggles the driver marker to the heading arrow, auto bottom-200 map padding when navigating.</p>
+          <p><code>(driver)/trip.tsx</code> — same camera pattern with an added bearing-to-next-maneuver fallback; route recalculates on every GPS fix; also runs a separate accumulated-distance tracker (<code>trackGpsPoint</code>) for the fare receipt.</p>
+          <p><code>(driver)/trip-summary.tsx</code> — no map, pure receipt display.</p>
+          <p><code>(customer)/trip.tsx</code> — no <code>mapRef</code>, no owned camera logic, no polyline passed to <code>&lt;Map&gt;</code>; relies entirely on <code>Map.native.tsx</code>'s default flat auto-follow.</p>
+          <p><code>(tabs)/navigate.tsx</code> — richest screen: inline heading-up follow inside the GPS callback, the only application-code caller of <code>fitToCoordinates</code>, and the only screen whose GPS watcher effect is keyed on UI toggle state (tears down/restarts on <code>isNavigating</code>/<code>isAutoFollow</code> change).</p>
+          <p><code>PassengerHome.tsx</code> — no owned auto-follow; is the primary real-world trigger of <code>Map.native.tsx</code>'s two-marker <code>fitToCoordinates</code> path (never passes <code>driverLocation</code>, so the internal guard doesn't block it); its manual recenter button uses a second, independent GPS read from the one powering the map display.</p>
+          <p><code>MapPickerModal.native.tsx</code> — constructs its own independent <code>MapView</code> rather than reusing <code>&lt;Map&gt;</code>; the only file in the whole audit with an explicit debounce (500ms on drag-to-geocode).</p>
+          <p><code>MapPickerModal.web.tsx</code> — shows a "not available" message; no map on web for this flow at all.</p>
+          <p><code>RidePlannerSheet.tsx</code> — canonical passenger-side <code>getDirections</code> call site; uses raw <code>useCurrentLocation()</code> rather than the road-snapped hook <code>PassengerHome</code> uses for display.</p>
+          <p><code>LocationSearchModal.tsx</code> — pure search UI, 300ms debounce, no map/camera/GPS involvement.</p>
+          <p><code>QuickDestinations.tsx</code> — presentational Home/Work shortcuts; no import site found among the audited files, worth a repo-wide confirmation before assuming it's wired in anywhere.</p>
+          <p><code>DriverDashboard.tsx</code> — most elaborate GPS acquisition (3-tier accuracy fallback); plain (non-heading) recenter; watcher effect keyed on <code>[isOnline, isAutoFollow]</code>, same tear-down-on-toggle pattern as <code>navigate.tsx</code>; redundant camera write alongside <code>Map.native.tsx</code>'s own default auto-follow.</p>
+          <p><code>RequestCard.tsx</code>, <code>DiscoverScreen.tsx</code>, <code>app/discover.tsx</code> — no camera/GPS/route logic; included for completeness only.</p>
+        </div>
+      </details>
+
+      <details class="appendix">
+        <summary><span>C. Route, GPS math, and state layer</span><span class="count">18 files</span></summary>
+        <div class="inner">
+          <p><strong>lib/mapAnimation.ts</strong> — <code>MARKER_ANIMATION</code> constants + <code>normalizeHeading</code>/<code>shortestRotation</code> worklets, fully adopted by all four marker-animation consumers; scoped to marker animation only, no camera-animation equivalent exists (the gap addressed in §9).</p>
+          <p><strong>lib/routeSnapping.ts</strong> — <code>snapToPath</code> (point-to-segment planar-projection snapping) used in exactly one place (<code>useRoadSnappedVehicle</code>); <code>calculateBearing</code> used far more broadly across four files, bundled in the same module despite being a general-purpose utility.</p>
+          <p><strong>lib/maneuverIcon.ts</strong> — consistently used by all three turn-by-turn screens.</p>
+          <p><strong>lib/google/mapsApi.ts</strong> — sole wrapper for Places, Directions, Geocoding, Distance Matrix, and Roads APIs; no caching/rate-limiting anywhere; consistent try/catch/log/fallback error handling.</p>
+          <p><strong>lib/google/mapStyle.ts</strong> — applied only on <code>Map.web.tsx</code>; no native equivalent.</p>
+          <p><strong>lib/distance.ts</strong> — canonical haversine implementation, 10 consumers, no reimplementations found elsewhere.</p>
+          <p><strong>lib/plusCode.ts</strong> — unrelated Plus Code utility, sole permitted importer of <code>open-location-code</code>.</p>
+          <p><strong>core/spatialEngine.ts</strong> — H3 wrapper (resolution 9, ~170m hexes) used by both stores and two services for proximity indexing, distinct from live-navigation route math.</p>
+          <p><strong>state/rideStore.ts</strong> — no camera state; route state limited to coordinates/distance/duration display strings, no steps/waypoints stored; driver location/heading only nested inside <code>activeTrip</code>, populated purely from realtime payloads; no <code>isNavigating</code> flag.</p>
+          <p><strong>state/driverStore.ts</strong> — no camera state, no route state at all; <code>currentLocation</code> has no heading field; <code>tripStatus</code> includes <code>'navigating_to_pickup'</code> as the closest thing to a navigation-mode flag, not shared with <code>rideStore</code>.</p>
+          <p><strong>state/settingsStore.ts</strong> — single H3-debug boolean, unrelated to navigation.</p>
+          <p><strong>services/discoveryEngine.ts</strong> — confirmed dead/orphaned, operates on a hardcoded mock driver pool, reachable only behind the H3 debug toggle.</p>
+          <p><strong>services/orders.ts</strong> — ETA and distance-to-pickup are server-computed and trusted via the realtime payload; client never recalculates ETA for the "driver en route" phase.</p>
+          <p><strong>services/driverOrders.ts</strong> — <code>updateDriverTelemetry</code> is the real GPS-to-backend pipeline (5s interval via <code>useDriverTelemetryPing</code>), separate from each screen's local camera-follow watcher; <code>fetchNearbyDriverPushTokens</code> is the real H3-based matching <code>discoveryEngine.ts</code> mocks.</p>
+          <p><strong>services/serviceAreas.ts</strong> — UX-convenience RPC only; real enforcement is a DB trigger (matches prior finding on this system).</p>
+          <p><strong>services/vehicleClasses.ts</strong> — <code>night_rate_multiplier</code>/<code>peak_multiplier</code> fetched from the view but never read or applied anywhere (matches prior finding — confirmed still dead as of this audit).</p>
+        </div>
+      </details>
+    </section>
+
+    <footer>
+      Read-only audit. No source files were modified, refactored, or created in the course of producing this report. All file:line references reflect the state of the <code>dev</code> branch at the time of this audit.
+    </footer>
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>
+  // Diagrams render automatically if a network connection is available when this
+  // file is opened; the mermaid source text remains readable as plain text if not.
+  if (window.mermaid) {
+    var isDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    mermaid.initialize({ startOnLoad: true, theme: isDark ? 'dark' : 'default', securityLevel: 'loose' });
+  }
+</script>
+</body>
+</html>
