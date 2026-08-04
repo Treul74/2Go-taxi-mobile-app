@@ -3,12 +3,17 @@ import { RideActionSlider } from '@/components/ui';
 import { useDriverTelemetryPing } from '@/hooks';
 import { useTurnPreview } from '@/hooks/useTurnPreview';
 import { calculateDistanceKm, calculateDistanceMeters, formatManeuverDistance } from '@/lib/distance';
-import { getDirections, type DirectionStep } from '@/lib/google/mapsApi';
+import { type DirectionStep } from '@/lib/google/mapsApi';
 import { getManeuverIconName } from '@/lib/maneuverIcon';
 import { calculateBearing } from '@/lib/routeSnapping';
+import * as GPSManager from '@/navigation/NavigationEngine/GPSManager';
+import { useNavigation } from '@/navigation/NavigationEngine/hooks/useNavigation';
+import { fetchRoute } from '@/navigation/NavigationEngine/RouteEngine';
+import { safeTransition } from '@/navigation/NavigationEngine/safeTransition';
+import { useNavigationStore } from '@/navigation/NavigationEngine/NavigationStore';
+import type { GPSFix } from '@/navigation/NavigationEngine/types';
 import { useDriverStore } from '@/state';
 import { Ionicons } from '@expo/vector-icons';
-import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Animated, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
@@ -34,6 +39,7 @@ export default function DriverTripScreen() {
         updateLocation,
         vehicleType,
     } = useDriverStore();
+    const navigation = useNavigation();
 
     const [driverLocation, setDriverLocation] = useState<{ latitude: number; longitude: number } | null>(
         currentLocation
@@ -82,9 +88,10 @@ export default function DriverTripScreen() {
     // the running total this produces is the actual distance driven this
     // trip, as opposed to the remaining distance to the destination. Only
     // valid movement is added, and noisy or implausible fixes are ignored.
-    const trackGpsPoint = (location: Location.LocationObject) => {
-        const { latitude, longitude, accuracy } = location.coords;
-        const currentTimestamp = location.timestamp;
+    const trackGpsPoint = (fix: GPSFix) => {
+        const { latitude, longitude } = fix.coordinate;
+        const accuracy = fix.accuracy ?? null;
+        const currentTimestamp = fix.timestamp;
 
         if (accuracy == null || !Number.isFinite(accuracy) || accuracy > 50) {
             return false;
@@ -123,46 +130,37 @@ export default function DriverTripScreen() {
         return true;
     };
 
-    // Track driver location (high accuracy, 1–2s interval)
+    // Track driver location (high accuracy, 1–2s interval). GPS acquisition
+    // goes entirely through GPSManager — the only file allowed to create a
+    // location subscription (src/navigation/NavigationEngine/GPSManager.ts).
     useEffect(() => {
-        let subscription: any = null;
+        let cancelled = false;
+        const unsubscribeFix = GPSManager.onFix((fix) => {
+            setDriverLocation(fix.coordinate);
+            updateLocation(fix.coordinate.latitude, fix.coordinate.longitude);
+            trackGpsPoint(fix);
+            if (fix.heading !== undefined) {
+                setDriverHeading(fix.heading);
+            }
+            if (fix.speed !== undefined && fix.speed >= 0) {
+                setCurrentSpeed(Math.round(fix.speed * 3.6));
+            }
+        });
 
         async function startTracking() {
             try {
-                const { status } = await Location.requestForegroundPermissionsAsync();
-                if (status !== 'granted') return;
+                await GPSManager.acquire('foreground', 'driverBestNavigation');
+                if (cancelled) return;
 
-                const initial = await Location.getCurrentPositionAsync({
-                    accuracy: Location.Accuracy.BestForNavigation,
-                }).catch(() => null);
-
-                if (initial) {
-                    setDriverLocation(initial.coords);
-                    updateLocation(initial.coords.latitude, initial.coords.longitude);
-                    trackGpsPoint(initial);
-                    if (initial.coords.heading !== null) {
-                        setDriverHeading(initial.coords.heading);
+                const existingFix = GPSManager.getLastFix();
+                if (existingFix) {
+                    setDriverLocation(existingFix.coordinate);
+                    updateLocation(existingFix.coordinate.latitude, existingFix.coordinate.longitude);
+                    trackGpsPoint(existingFix);
+                    if (existingFix.heading !== undefined) {
+                        setDriverHeading(existingFix.heading);
                     }
                 }
-
-                subscription = await Location.watchPositionAsync(
-                    {
-                        accuracy: Location.Accuracy.BestForNavigation,
-                        distanceInterval: 1,
-                        timeInterval: 1000,
-                    },
-                    (location) => {
-                        setDriverLocation(location.coords);
-                        updateLocation(location.coords.latitude, location.coords.longitude);
-                        trackGpsPoint(location);
-                        if (location.coords.heading !== null) {
-                            setDriverHeading(location.coords.heading);
-                        }
-                        if (location.coords.speed !== null && location.coords.speed >= 0) {
-                            setCurrentSpeed(Math.round(location.coords.speed * 3.6));
-                        }
-                    }
-                );
             } catch {
                 // Non-critical — location tracking will retry on next mount.
             }
@@ -171,25 +169,37 @@ export default function DriverTripScreen() {
         startTracking();
 
         return () => {
-            if (subscription?.remove) {
-                subscription.remove();
-            }
+            cancelled = true;
+            unsubscribeFix();
+            GPSManager.release();
         };
     }, []);
 
-    // Fetch route to destination for in-app navigation
+    // Fetch route to destination for in-app navigation. Routing goes
+    // entirely through RouteEngine — the only file allowed to fetch/cache
+    // Directions (src/navigation/NavigationEngine/RouteEngine.ts).
     useEffect(() => {
         if (!driverLocation || !currentTrip) return;
         let cancelled = false;
         (async () => {
-            const route = await getDirections(
-                { ...driverLocation, address: '' },
-                currentTrip.destination,
-                'driving'
-            );
+            const route = await fetchRoute(driverLocation, currentTrip.destination);
             if (!route || cancelled) return;
-            setRouteCoordinates(route.coordinates);
-            setRouteSteps(route.steps);
+            // Publishes the fetched destination route into NavigationStore
+            // alongside this screen's own local state (Phase 5D).
+            useNavigationStore.getState().setRoute(route);
+            setRouteCoordinates(route.path);
+            // Adapted to the shape this screen already expects — RouteEngine's
+            // own RouteStep carries the same data as flat numeric fields
+            // instead of Google's {text,value} pairs.
+            setRouteSteps(route.steps.map((step): DirectionStep => ({
+                instruction: step.instruction,
+                distance: { text: formatManeuverDistance(step.distanceMeters), value: step.distanceMeters },
+                duration: { text: `${Math.round(step.durationSeconds / 60)} min`, value: step.durationSeconds },
+                startLocation: step.startLocation,
+                endLocation: step.endLocation,
+                maneuver: step.maneuver,
+                polyline: '', // unused by <Map routeSteps> (only maneuver/start/endLocation are read)
+            })));
             setActiveStepIndex(0);
         })();
         return () => {
@@ -329,6 +339,11 @@ export default function DriverTripScreen() {
             Alert.alert('Error', 'Could not complete the trip. Please check your connection and try again.');
             return;
         }
+
+        safeTransition(() => {
+            navigation.arrivedAtDropoff();
+            navigation.completeTrip();
+        });
 
         // currentTrip stays set until finishTrip() (called from the summary
         // screen) so this navigation doesn't race the "no active trip" redirect.

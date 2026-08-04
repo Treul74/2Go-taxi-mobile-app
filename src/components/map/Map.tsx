@@ -119,6 +119,19 @@ export interface MapProps {
 
   /** Explicit MapView edge padding (e.g. to keep the camera focus point clear of an overlay). Overrides the navigationArrowMode default when set. */
   mapPadding?: { top: number; right: number; bottom: number; left: number };
+
+  /**
+   * Disables every camera move `Map` would otherwise trigger on its own
+   * (centering on `userLocation`, following `driverLocation`, fitting to
+   * pickup/destination bounds) — for `NavigationMap`
+   * (`src/components/navigation/`), which hands all camera control to
+   * `CameraController` instead. `CameraController` is documented as "the
+   * only owner of the Google Maps camera"; without this flag its
+   * `animateCamera` calls would compete with `Map`'s own built-in
+   * effects. Defaults to `false` so every existing screen using `Map`
+   * directly keeps its current behaviour unchanged.
+   */
+  disableInternalCamera?: boolean;
 }
 
 

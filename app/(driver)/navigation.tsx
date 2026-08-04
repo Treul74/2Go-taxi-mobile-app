@@ -1,22 +1,22 @@
-import { CompassButton, Map } from '@/components/map';
+import { CompassButton } from '@/components/map';
+import { NavigationMap } from '@/components/navigation';
 import { Button, Card, RideActionSlider } from '@/components/ui';
 import { useDriverTelemetryPing } from '@/hooks';
 import { useTurnPreview } from '@/hooks/useTurnPreview';
 import { calculateDistanceKm, calculateDistanceMeters, formatManeuverDistance } from '@/lib/distance';
-import { getDirections, type DirectionStep } from '@/lib/google/mapsApi';
+import { type DirectionStep } from '@/lib/google/mapsApi';
 import { getManeuverIconName } from '@/lib/maneuverIcon';
+import * as GPSManager from '@/navigation/NavigationEngine/GPSManager';
+import { useNavigation } from '@/navigation/NavigationEngine/hooks/useNavigation';
+import { fetchRoute } from '@/navigation/NavigationEngine/RouteEngine';
+import { safeTransition } from '@/navigation/NavigationEngine/safeTransition';
+import { useNavigationStore } from '@/navigation/NavigationEngine/NavigationStore';
 import { useDriverStore } from '@/state';
 import { Ionicons } from '@expo/vector-icons';
-import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Alert, Animated, Linking, Pressable, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-
-/** Heading-up navigation camera tilt/zoom, matched to app/(tabs)/navigate.tsx. */
-const NAV_CAMERA_PITCH = 45;
-const NAV_CAMERA_ALTITUDE = 500;
-const NAV_CAMERA_ZOOM = 17;
 
 /**
  * Driver Navigation Screen
@@ -29,10 +29,12 @@ export default function DriverNavigationScreen() {
         tripStatus,
         confirmArrival,
         beginTrip,
+        startTripRetry,
         waitingStartTime,
         currentLocation,
         updateLocation,
     } = useDriverStore();
+    const navigation = useNavigation();
 
     const [driverLocation, setDriverLocation] = useState<{ latitude: number; longitude: number } | null>(
         currentLocation
@@ -40,61 +42,48 @@ export default function DriverNavigationScreen() {
     const [driverHeading, setDriverHeading] = useState<number>(0);
     const [routeCoordinates, setRouteCoordinates] = useState<Array<{ latitude: number; longitude: number }>>([]);
     const [routeDistance, setRouteDistance] = useState<string | null>(null);
-    const [routeEta, setRouteEta] = useState<string | null>(null);
     const [routeSteps, setRouteSteps] = useState<DirectionStep[]>([]);
     const [activeStepIndex, setActiveStepIndex] = useState(0);
     const [distanceToManeuverMeters, setDistanceToManeuverMeters] = useState<number | null>(null);
     const [isNavigating, setIsNavigating] = useState(false);
     const [isCalculating, setIsCalculating] = useState(false);
     const [routeError, setRouteError] = useState(false);
-    const [isAutoFollow, setIsAutoFollow] = useState(true);
-    const [lastInteraction, setLastInteraction] = useState(0);
     const [elapsedWaitingTime, setElapsedWaitingTime] = useState(0);
     const [isConfirmingArrival, setIsConfirmingArrival] = useState(false);
     const [arrivalAttempt, setArrivalAttempt] = useState(0);
     const [isStartingTrip, setIsStartingTrip] = useState(false);
     const [startTripAttempt, setStartTripAttempt] = useState(0);
-    const mapRef = useRef<any>(null);
 
     useDriverTelemetryPing(currentTrip?.id, driverLocation, driverHeading);
 
-    // Track driver location (high accuracy, 1–2s interval)
+    // Track driver location (high accuracy, 1–2s interval). GPS acquisition
+    // goes entirely through GPSManager — the only file allowed to create a
+    // location subscription (src/navigation/NavigationEngine/GPSManager.ts).
     useEffect(() => {
-        let subscription: any = null;
+        let cancelled = false;
+        const unsubscribeFix = GPSManager.onFix((fix) => {
+            setDriverLocation(fix.coordinate);
+            updateLocation(fix.coordinate.latitude, fix.coordinate.longitude);
+            // Falls back to the existing heading state (initially 0) when
+            // GPS can't derive one, e.g. indoors — never crashes.
+            if (fix.heading !== undefined) {
+                setDriverHeading(fix.heading);
+            }
+        });
 
         async function startTracking() {
             try {
-                const { status } = await Location.requestForegroundPermissionsAsync();
-                if (status !== 'granted') return;
+                await GPSManager.acquire('foreground', 'driverBestNavigation');
+                if (cancelled) return;
 
-                const initial = await Location.getCurrentPositionAsync({
-                    accuracy: Location.Accuracy.BestForNavigation,
-                }).catch(() => null);
-
-                if (initial) {
-                    setDriverLocation(initial.coords);
-                    updateLocation(initial.coords.latitude, initial.coords.longitude);
-                    if (initial.coords.heading !== null) {
-                        setDriverHeading(initial.coords.heading);
+                const existingFix = GPSManager.getLastFix();
+                if (existingFix) {
+                    setDriverLocation(existingFix.coordinate);
+                    updateLocation(existingFix.coordinate.latitude, existingFix.coordinate.longitude);
+                    if (existingFix.heading !== undefined) {
+                        setDriverHeading(existingFix.heading);
                     }
                 }
-
-                subscription = await Location.watchPositionAsync(
-                    {
-                        accuracy: Location.Accuracy.BestForNavigation,
-                        distanceInterval: 1,
-                        timeInterval: 1000,
-                    },
-                    (location) => {
-                        setDriverLocation(location.coords);
-                        updateLocation(location.coords.latitude, location.coords.longitude);
-                        // Falls back to the existing heading state (initially 0) when
-                        // GPS can't derive one, e.g. indoors — never crashes.
-                        if (location.coords.heading !== null) {
-                            setDriverHeading(location.coords.heading);
-                        }
-                    }
-                );
             } catch {
                 // Non-critical — location tracking will retry on next mount.
             }
@@ -103,10 +92,21 @@ export default function DriverNavigationScreen() {
         startTracking();
 
         return () => {
-            if (subscription?.remove) {
-                subscription.remove();
-            }
+            cancelled = true;
+            unsubscribeFix();
+            GPSManager.release();
         };
+    }, []);
+
+    // Phase 6A (Camera Runtime Activation): this screen is the first
+    // NavigationMap host, and CameraController's initial cameraState
+    // ('OVERVIEW') would otherwise resolve to an auto-fit pose instead of
+    // following the driver toward pickup. Requesting FOLLOW_DRIVER once on
+    // mount is the existing, Bible-documented action for this
+    // (`navigation.followDriver()`) — no new camera logic, just telling the
+    // already-built engine which of its existing intents applies here.
+    useEffect(() => {
+        navigation.followDriver();
     }, []);
 
     // Redirect if no active trip
@@ -118,25 +118,53 @@ export default function DriverNavigationScreen() {
 
     const calculateRoute = async () => {
         if (!driverLocation || !currentTrip) return;
+        // Guards against overlapping fetches — driverLocation updates every
+        // 1-2s from GPSManager and could otherwise re-trigger the auto-fetch
+        // effect below while a previous fetchRoute() is still in flight,
+        // letting an earlier failure land after a later success and flip
+        // routeError back to true despite a valid route already being stored.
+        if (isCalculating) return;
 
-        // Don't modify init state here to avoid flashing UI, just fetch silently or with minor indicator if needed
-        // But for first load valid to leave as is
+        setIsCalculating(true);
+        setRouteError(false);
 
-        const route = await getDirections(
-            { ...driverLocation, address: '' },
-            currentTrip.pickup,
-            'driving'
-        );
+        try {
+            // Routing goes entirely through RouteEngine — the only file allowed
+            // to fetch/cache Directions (src/navigation/NavigationEngine/RouteEngine.ts).
+            const route = await fetchRoute(driverLocation, currentTrip.pickup);
 
-        if (!route) {
-            return;
+            if (!route) {
+                setRouteError(true);
+                return;
+            }
+
+            // Publishes the fetched pickup route into NavigationStore alongside
+            // this screen's own local state (Phase 5D) — this screen's UI still
+            // reads its own state below, unchanged.
+            useNavigationStore.getState().setRoute(route);
+
+            setRouteCoordinates(route.path);
+            setRouteDistance(route.distanceText ?? formatManeuverDistance(route.distanceMeters));
+            // Adapted to the shape this screen already expects — RouteEngine's
+            // own RouteStep carries the same data as flat numeric fields instead
+            // of Google's {text,value} pairs.
+            setRouteSteps(route.steps.map((step): DirectionStep => ({
+                instruction: step.instruction,
+                distance: { text: formatManeuverDistance(step.distanceMeters), value: step.distanceMeters },
+                duration: { text: `${Math.round(step.durationSeconds / 60)} min`, value: step.durationSeconds },
+                startLocation: step.startLocation,
+                endLocation: step.endLocation,
+                maneuver: step.maneuver,
+                polyline: '', // unused by <Map routeSteps> (only maneuver/start/endLocation are read)
+            })));
+            setActiveStepIndex(0);
+            setRouteError(false);
+        } catch (error) {
+            console.error('Error calculating route:', error);
+            setRouteError(true);
+        } finally {
+            setIsCalculating(false);
         }
-
-        setRouteCoordinates(route.coordinates);
-        setRouteDistance(route.distance.text);
-        setRouteEta(route.duration.text);
-        setRouteSteps(route.steps);
-        setActiveStepIndex(0);
     };
 
     // Auto-calculate route on mount or location update if no route
@@ -147,9 +175,20 @@ export default function DriverNavigationScreen() {
     }, [currentTrip, driverLocation]); // simplified dependency
 
     const handleStartPickup = async () => {
-        // Just enable navigation mode (camera follow)
+        // Runtime handoff (Phase 5.5B): makes the Navigation Runtime aware
+        // that navigation has started. Mode is normally already
+        // DRIVER_TO_PICKUP by the time this button is pressed (dispatched at
+        // Accept time — DriverDashboard.handleAcceptRequest), so this
+        // re-dispatch is typically a safeTransition-guarded no-op (DRIVER_TO_PICKUP
+        // has no legal self-loop — NavigationModes.ts). It's kept, not
+        // skipped, because it doubles as the recovery path if that earlier
+        // dispatch never landed (remount, race) — the only existing action
+        // that can (re)reach DRIVER_TO_PICKUP.
+        safeTransition(() => navigation.driverToPickup(driverLocation ?? undefined));
+
+        // Local UI state only (turn-by-turn banner, slider vs. button) —
+        // camera behaviour no longer depends on this flag (Phase 6A).
         setIsNavigating(true);
-        setIsAutoFollow(true);
     };
 
     const handleArrived = async () => {
@@ -159,7 +198,9 @@ export default function DriverNavigationScreen() {
         if (!success) {
             setArrivalAttempt((n) => n + 1);
             Alert.alert('Error', 'Could not confirm arrival. Please try again.');
+            return;
         }
+        safeTransition(() => navigation.arrivedAtPickup());
     };
 
     const handleStartRide = async () => {
@@ -167,6 +208,7 @@ export default function DriverNavigationScreen() {
         const success = await beginTrip();
         setIsStartingTrip(false);
         if (success) {
+            safeTransition(() => navigation.startTrip());
             router.push('/(driver)/trip');
         } else {
             setStartTripAttempt((n) => n + 1);
@@ -191,7 +233,6 @@ export default function DriverNavigationScreen() {
     const distance = driverLocation && currentTrip
         ? calculateDistanceKm(driverLocation.latitude, driverLocation.longitude, currentTrip.pickup.latitude, currentTrip.pickup.longitude).toFixed(1)
         : '...';
-    const eta = Math.max(1, Math.ceil(parseFloat(distance) * 2)); // Rough ETA: 2 min per km
 
     const isNearPickup = useMemo(() => {
         if (!driverLocation || !currentTrip) return false;
@@ -211,45 +252,14 @@ export default function DriverNavigationScreen() {
     const { pulseScale: turnPulseScale, color: turnDistanceColorValue } = useTurnPreview(distanceToManeuverMeters);
     const nextManeuverIcon = getManeuverIconName(currentStep?.maneuver);
 
-    // Auto-follow logic: resumes following after 5 seconds of no interaction
-    useEffect(() => {
-        if (!isAutoFollow) {
-            const timer = setInterval(() => {
-                const now = Date.now();
-                if (now - lastInteraction > 5000) {
-                    setIsAutoFollow(true);
-                }
-            }, 1000);
-            return () => clearInterval(timer);
-        }
-    }, [isAutoFollow, lastInteraction]);
-
-    const handleMapAction = () => {
-        setIsAutoFollow(false);
-        setLastInteraction(Date.now());
-    };
-
+    // Camera is now owned entirely by CameraController (Phase 6A) — this
+    // screen no longer holds a map ref or drives animateCamera itself (see
+    // AGENTS.md "Camera Rules" / Bible "Core Principles"). Compass tap
+    // requests the engine's existing FOLLOW_DRIVER intent instead of
+    // manipulating the map directly.
     const handleCompassPress = () => {
-        mapRef.current?.animateCamera?.({ heading: 0 }, 700);
+        navigation.recenter();
     };
-
-    // Heading-up camera for navigation: rotates so the direction of travel
-    // always faces up on screen, like Waze/Google Maps navigation.
-    useEffect(() => {
-        if (!isNavigating || !driverLocation || !isAutoFollow) return;
-        if (mapRef.current?.animateCamera) {
-            mapRef.current.animateCamera({
-                center: {
-                    latitude: driverLocation.latitude,
-                    longitude: driverLocation.longitude,
-                },
-                heading: driverHeading || 0,
-                pitch: NAV_CAMERA_PITCH,
-                altitude: NAV_CAMERA_ALTITUDE,
-                zoom: NAV_CAMERA_ZOOM,
-            }, 700);
-        }
-    }, [driverLocation?.latitude, driverLocation?.longitude, driverHeading, isNavigating, isAutoFollow]);
 
     // Advance to next step when close to current step end — also tracks live
     // distance to the upcoming maneuver for the turn preview pulse/color escalation.
@@ -310,24 +320,13 @@ export default function DriverNavigationScreen() {
 
     return (
         <View className="flex-1 bg-background">
-            {/* Full-screen Map */}
+            {/* Full-screen Map — Phase 6A: this screen is the first
+                NavigationMap host. The engine (CameraController, driven by
+                NavigationStore) now owns every marker/camera decision this
+                base layer renders; the screen no longer passes driver
+                position, route, or camera props by hand. */}
             <View className="absolute inset-0">
-                <Map
-                    ref={mapRef}
-                    driverLocation={driverLocation || undefined}
-                    driverHeading={driverHeading}
-                    navigationArrowMode={isNavigating}
-                    pickup={currentTrip.pickup}
-                    showRoute={routeCoordinates.length > 0} // Always show route if available
-                    routeCoordinates={routeCoordinates}
-                    scrollEnabled={true}
-                    zoomEnabled={true}
-                    autoFollowDriver={false}
-                    onPanDrag={handleMapAction}
-                    onRegionChangeComplete={handleMapAction}
-                    eta={routeEta || `${eta} min ETA`} // Pass ETA to map
-                    showZoomControls={true}
-                />
+                <NavigationMap />
             </View>
 
 
@@ -485,6 +484,15 @@ export default function DriverNavigationScreen() {
                                             {formatTime(elapsedWaitingTime)}
                                         </Text>
                                     </View>
+                                    {isStartingTrip && startTripRetry && (
+                                        <View className="bg-warning/10 px-4 py-2 rounded-xl mb-3 flex-row items-center justify-center">
+                                            <Ionicons name="cloud-offline-outline" size={16} color="#FFB800" />
+                                            <Text className="text-warning font-medium text-sm ml-2 text-center">
+                                                Network connection interrupted.{'\n'}
+                                                Retrying... Attempt {startTripRetry.attempt} of {startTripRetry.maxAttempts}
+                                            </Text>
+                                        </View>
+                                    )}
                                     <RideActionSlider
                                         key={`start-trip-${startTripAttempt}`}
                                         label="Slide to Start Trip"

@@ -4,13 +4,14 @@ import { LocationSearchModal } from '@/features/passenger/components/LocationSea
 import { MapPickerModal } from '@/features/passenger/components/MapPickerModal';
 import { useTurnPreview } from '@/hooks/useTurnPreview';
 import { calculateDistanceMeters, formatManeuverDistance } from '@/lib/distance';
-import { getDirections, type DirectionStep } from '@/lib/google/mapsApi';
+import { type DirectionStep } from '@/lib/google/mapsApi';
 import { getManeuverIconName } from '@/lib/maneuverIcon';
 import { calculateBearing } from '@/lib/routeSnapping';
+import * as GPSManager from '@/navigation/NavigationEngine/GPSManager';
+import { fetchRoute } from '@/navigation/NavigationEngine/RouteEngine';
 import { useDriverStore } from '@/state';
 import type { Location } from '@/types';
 import { Ionicons } from '@expo/vector-icons';
-import * as ExpoLocation from 'expo-location';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Animated, Keyboard, Pressable, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -68,62 +69,75 @@ export default function DriverNavigateScreen() {
         }
     }, [currentLocation]);
 
-    // Live Tracking
+    // Mirrors state the onFix callback below needs fresh, without needing
+    // any of it in the tracking effect's dependency array — toggling
+    // navigation/auto-follow/route-step state no longer tears down and
+    // recreates the GPS subscription (a pre-existing inefficiency; see
+    // audit_export/audit_03-08-26_11-58_gps-subscription-audit.md).
+    const isNavigatingRef = useRef(isNavigating);
+    useEffect(() => { isNavigatingRef.current = isNavigating; }, [isNavigating]);
+    const isAutoFollowRef = useRef(isAutoFollow);
+    useEffect(() => { isAutoFollowRef.current = isAutoFollow; }, [isAutoFollow]);
+    const navigationStepsRef = useRef(navigationSteps);
+    useEffect(() => { navigationStepsRef.current = navigationSteps; }, [navigationSteps]);
+    const activeStepIndexRef = useRef(activeStepIndex);
+    useEffect(() => { activeStepIndexRef.current = activeStepIndex; }, [activeStepIndex]);
+
+    // Live Tracking. GPS acquisition goes entirely through GPSManager — the
+    // only file allowed to create a location subscription
+    // (src/navigation/NavigationEngine/GPSManager.ts).
     useEffect(() => {
-        let subscription: any = null;
+        let cancelled = false;
+        const unsubscribeFix = GPSManager.onFix((fix) => {
+            setDriverLocation(fix.coordinate);
+            // Heading falls back to 0 (handled by the state's initial value)
+            // whenever GPS can't derive one, e.g. indoors — never crashes.
+            if (fix.heading !== undefined) setDriverHeading(fix.heading);
+            if (fix.speed !== undefined) {
+                // Convert m/s to km/h
+                setCurrentSpeed(Math.max(0, Math.round(fix.speed * 3.6)));
+            } else {
+                setCurrentSpeed(0);
+            }
+
+            // Heading-up camera: rotates so the direction of travel always
+            // faces up on screen, like Waze/Google Maps navigation.
+            if (isNavigatingRef.current && isAutoFollowRef.current && mapRef.current?.animateCamera) {
+                // GPS heading is unreliable (0 or null) while stationary or at
+                // low speed — fall back to the bearing toward the upcoming
+                // maneuver instead of defaulting to 0 (which would snap the
+                // map to face north).
+                let cameraHeading = fix.heading ?? null;
+                if (cameraHeading === null || cameraHeading < 1) {
+                    const nextStepEnd = navigationStepsRef.current[activeStepIndexRef.current]?.endLocation;
+                    cameraHeading = nextStepEnd
+                        ? calculateBearing(fix.coordinate, nextStepEnd)
+                        : 0;
+                }
+
+                mapRef.current.animateCamera({
+                    center: {
+                        latitude: fix.coordinate.latitude,
+                        longitude: fix.coordinate.longitude,
+                    },
+                    heading: cameraHeading,
+                    pitch: NAV_CAMERA_PITCH,
+                    altitude: NAV_CAMERA_ALTITUDE,
+                    zoom: NAV_CAMERA_ZOOM,
+                }, 700);
+            }
+        });
 
         async function startTracking() {
             try {
-                const { status } = await ExpoLocation.requestForegroundPermissionsAsync();
-                if (status !== 'granted') return;
+                await GPSManager.acquire('foreground', 'driverBestNavigation');
+                if (cancelled) return;
 
-                subscription = await ExpoLocation.watchPositionAsync(
-                    {
-                        accuracy: ExpoLocation.Accuracy.BestForNavigation,
-                        distanceInterval: 1,
-                        timeInterval: 1000,
-                    },
-                    (location) => {
-                        const coords = location.coords;
-                        setDriverLocation(coords);
-                        // Heading falls back to 0 (handled by the state's initial value)
-                        // whenever GPS can't derive one, e.g. indoors — never crashes.
-                        if (coords.heading !== null) setDriverHeading(coords.heading);
-                        if (coords.speed !== null) {
-                            // Convert m/s to km/h
-                            setCurrentSpeed(Math.max(0, Math.round(coords.speed * 3.6)));
-                        } else {
-                            setCurrentSpeed(0);
-                        }
-
-                        // Heading-up camera: rotates so the direction of travel always
-                        // faces up on screen, like Waze/Google Maps navigation.
-                        if (isNavigating && isAutoFollow && mapRef.current?.animateCamera) {
-                            // GPS heading is unreliable (0 or null) while stationary or at
-                            // low speed — fall back to the bearing toward the upcoming
-                            // maneuver instead of defaulting to 0 (which would snap the
-                            // map to face north).
-                            let cameraHeading = coords.heading;
-                            if (cameraHeading === null || cameraHeading < 1) {
-                                const nextStepEnd = navigationSteps[activeStepIndex]?.endLocation;
-                                cameraHeading = nextStepEnd
-                                    ? calculateBearing(coords, nextStepEnd)
-                                    : 0;
-                            }
-
-                            mapRef.current.animateCamera({
-                                center: {
-                                    latitude: coords.latitude,
-                                    longitude: coords.longitude,
-                                },
-                                heading: cameraHeading,
-                                pitch: NAV_CAMERA_PITCH,
-                                altitude: NAV_CAMERA_ALTITUDE,
-                                zoom: NAV_CAMERA_ZOOM,
-                            }, 700);
-                        }
-                    }
-                );
+                const existingFix = GPSManager.getLastFix();
+                if (existingFix) {
+                    setDriverLocation(existingFix.coordinate);
+                    if (existingFix.heading !== undefined) setDriverHeading(existingFix.heading);
+                }
             } catch {
                 // Non-critical — location tracking will retry on next mount.
             }
@@ -132,11 +146,11 @@ export default function DriverNavigateScreen() {
         startTracking();
 
         return () => {
-            if (subscription?.remove) {
-                subscription.remove();
-            }
+            cancelled = true;
+            unsubscribeFix();
+            GPSManager.release();
         };
-    }, [isNavigating, isAutoFollow]);
+    }, []);
 
     // Route Preview Calculation
     useEffect(() => {
@@ -148,22 +162,31 @@ export default function DriverNavigateScreen() {
     const calculateRoute = async () => {
         if (!startLocation || !destinationLocation) return;
 
-        const route = await getDirections(
-            startLocation,
-            destinationLocation,
-            'driving'
-        );
+        // Routing goes entirely through RouteEngine — the only file allowed
+        // to fetch/cache Directions (src/navigation/NavigationEngine/RouteEngine.ts).
+        const route = await fetchRoute(startLocation, destinationLocation);
 
         if (route) {
-            setRouteCoordinates(route.coordinates);
-            setNavigationSteps(route.steps);
-            setRouteDistance(route.distance.text);
-            setRouteEta(route.duration.text);
+            setRouteCoordinates(route.path);
+            // Adapted to the shape this screen (and <Map routeSteps>) already
+            // expects — RouteEngine's own RouteStep carries the same data as
+            // flat numeric fields instead of Google's {text,value} pairs.
+            setNavigationSteps(route.steps.map((step): DirectionStep => ({
+                instruction: step.instruction,
+                distance: { text: formatManeuverDistance(step.distanceMeters), value: step.distanceMeters },
+                duration: { text: `${Math.round(step.durationSeconds / 60)} min`, value: step.durationSeconds },
+                startLocation: step.startLocation,
+                endLocation: step.endLocation,
+                maneuver: step.maneuver,
+                polyline: '', // unused by <Map routeSteps> (only maneuver/start/endLocation are read); RouteStep.path already carries the decoded points if ever needed
+            })));
+            setRouteDistance(route.distanceText ?? formatManeuverDistance(route.distanceMeters));
+            setRouteEta(route.durationText ?? `${Math.round(route.durationSeconds / 60)} min`);
             setActiveStepIndex(0);
 
             // Fit to bounds
-            if (mapRef.current?.fitToCoordinates && route.coordinates.length > 0) {
-                mapRef.current.fitToCoordinates(route.coordinates, {
+            if (mapRef.current?.fitToCoordinates && route.path.length > 0) {
+                mapRef.current.fitToCoordinates(route.path, {
                     edgePadding: { top: 100, right: 50, bottom: 100, left: 50 },
                     animated: true,
                 });

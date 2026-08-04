@@ -12,6 +12,7 @@ import {
 import { setDriverStatus } from '@/services/accounts';
 import { submitDriverRating } from '@/services/ratings';
 import { sendPushNotification } from '@/lib/notifications';
+import { isTransientFailureMessage, withRetry } from '@/lib/withRetry';
 import { useAuthStore } from '@/state/authStore';
 import { useDriverWalletStore } from '@/state/driverWalletStore';
 import { useUserStore } from '@/state/userStore';
@@ -61,6 +62,10 @@ interface DriverState {
   // Set by completeTrip() on success, read by the trip-summary screen, and
   // cleared by finishTrip() when the driver returns home.
   lastTripSummary: TripSummary | null;
+  // Set while beginTrip() is retrying a transient InsForge failure (see
+  // withRetry), read by navigation.tsx to show "Retrying... Attempt N of M"
+  // instead of the generic failure alert. Always null outside of a retry.
+  startTripRetry: { attempt: number; maxAttempts: number } | null;
 
   // Actions
   goOnline: (driverId: string, vehicleType: VehicleType) => Promise<boolean>;
@@ -160,6 +165,7 @@ export const useDriverStore = create<DriverState>((set, get) => ({
   waitingStartTime: null,
   waitingDuration: 0,
   lastTripSummary: null,
+  startTripRetry: null,
 
   // Online status actions. Slide right -> go online: persists driver_status
   // to InsForge first and only flips isOnline (the slider's visual state) on
@@ -373,11 +379,28 @@ export const useDriverStore = create<DriverState>((set, get) => ({
   // Slide to Start Trip: persists status='in_progress' + trip_started_at.
   // Returns false on failure so the screen can surface an error and let the
   // driver retry instead of navigating into the trip screen on a stale order.
+  //
+  // The InsForge request itself is wrapped in withRetry (Phase 6.6A) --
+  // audit_export/audit_04-08-26_07-37_insforge-start-trip-timeout.md found
+  // the SDK's own 30s client timeout is never retried, so a single transient
+  // network blip was a hard failure with no recovery. Only the request is
+  // wrapped; the accepted->in_progress business logic below is unchanged and
+  // NavigationStore still only transitions on a confirmed successful result.
   beginTrip: async () => {
     const { currentTrip, waitingStartTime } = get();
     if (!currentTrip) return false;
 
-    const { errorMessage, customerPushToken } = await startOrderTrip(currentTrip.id);
+    set({ startTripRetry: null });
+    const { errorMessage, customerPushToken } = await withRetry(
+      () => startOrderTrip(currentTrip.id),
+      {
+        label: 'Trip Start',
+        isRetryable: (result) => isTransientFailureMessage(result.errorMessage),
+        onRetry: ({ attempt, maxAttempts }) => set({ startTripRetry: { attempt, maxAttempts } }),
+      }
+    );
+    set({ startTripRetry: null });
+
     if (errorMessage) {
       console.error('Failed to start trip:', errorMessage);
       return false;
