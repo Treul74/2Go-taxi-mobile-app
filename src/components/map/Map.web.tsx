@@ -30,6 +30,7 @@ export function Map({
   driverHeading = 0,
   driverVehicleVariant = 'comfort',
   showSearchPulse = false,
+  disableInternalCamera = false,
 }: MapProps) {
   // Check if we have an API key
   const apiKey = getGoogleMapsApiKey();
@@ -64,6 +65,7 @@ export function Map({
 
   // Fit map to show all markers when they change
   useEffect(() => {
+    if (disableInternalCamera) return;
     if (!isReady || !mapRef.current) return;
 
     const bounds = new window.google.maps.LatLngBounds();
@@ -87,7 +89,7 @@ export function Map({
         left: 50,
       });
     }
-  }, [pickup, destination, isReady]);
+  }, [pickup, destination, isReady, disableInternalCamera]);
 
   // NOW we can do conditional rendering after all hooks are called
   // Fallback to placeholder if no API key or loading failed

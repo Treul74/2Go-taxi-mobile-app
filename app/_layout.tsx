@@ -7,6 +7,7 @@ import { useNotificationTapNavigation } from '@/hooks/useNotificationTapNavigati
 import { insforge } from '@/lib/insforge';
 import { registerPushToken, requestNotificationPermissions } from '@/lib/notifications';
 import '@/lib/polyfills';
+import { NavigationProvider } from '@/navigation/NavigationEngine/providers/NavigationProvider';
 import { useAuthStore } from '@/state/authStore';
 import { AccountsLoadError, useUserStore } from '@/state/userStore';
 import { router, Stack } from 'expo-router';
@@ -230,6 +231,7 @@ export default function RootLayout() {
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
+      <NavigationProvider>
       <SafeAreaProvider>
         <StatusBar style="dark" />
         {!appReady ? (
@@ -333,6 +335,7 @@ export default function RootLayout() {
         )}
         {appReady && authed && <FareReceiptModal />}
       </SafeAreaProvider>
+      </NavigationProvider>
     </GestureHandlerRootView>
   );
 }

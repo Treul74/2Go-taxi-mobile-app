@@ -3,7 +3,7 @@ import { Button, IconButton, Input, Pill } from '@/components/ui';
 import { useCurrentLocation } from '@/hooks/useCurrentLocation';
 import { formatDisplayAddress } from '@/lib';
 import { getActiveFareSurcharge } from '@/lib/fareSurcharge';
-import { getDirections } from '@/lib/google';
+import { fetchRoute } from '@/navigation/NavigationEngine/RouteEngine';
 import { useRideStore, useUserStore } from '@/state';
 import type { Location, PaymentMethod, SavedAddress } from '@/types';
 import { Ionicons } from '@expo/vector-icons';
@@ -147,18 +147,20 @@ export function RidePlannerSheet({ onRequestRide, isMapDragging = false }: RideP
     }
   }, [destination, destinationQuery]);
 
-  // Fetch route when both pickup and destination are set
+  // Fetch route when both pickup and destination are set. Routing goes
+  // entirely through RouteEngine — the only file allowed to fetch/cache
+  // Directions (src/navigation/NavigationEngine/RouteEngine.ts).
   useEffect(() => {
     if (pickup && destination) {
-      getDirections(pickup, destination)
+      fetchRoute(pickup, destination)
         .then(route => {
           if (route) {
             setRouteData(
-              route.coordinates,
-              route.distance.text,
-              route.duration.text,
-              route.distance.value,
-              route.duration.value
+              route.path,
+              route.distanceText ?? '',
+              route.durationText ?? '',
+              route.distanceMeters,
+              route.durationSeconds
             );
           }
         })
@@ -266,7 +268,7 @@ export function RidePlannerSheet({ onRequestRide, isMapDragging = false }: RideP
 
     // Optionally fetch directions for route preview (non-blocking)
     if (finalPickup && destination) {
-      getDirections(finalPickup, destination)
+      fetchRoute(finalPickup, destination)
         .catch(err => console.error('Failed to get directions:', err));
     }
 

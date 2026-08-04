@@ -1,9 +1,9 @@
 import { BackButton, Button } from '@/components/ui';
 import { formatDisplayAddress } from '@/lib';
 import { nearestRoad, reverseGeocode } from '@/lib/google';
+import * as GPSManager from '@/navigation/NavigationEngine/GPSManager';
 import type { Location } from '@/types';
 import { Ionicons } from '@expo/vector-icons';
-import * as LocationAPI from 'expo-location';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, LayoutChangeEvent, Modal, Platform, Pressable, StatusBar, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -154,24 +154,19 @@ export function MapPickerModal({
     }
   }, [selectedLocation, isGeocoding, onConfirm]);
 
-  // Handle go to current location
+  // Handle go to current location — a single fresh read via GPSManager, the
+  // only file allowed to talk to expo-location directly (see GPSManager.ts).
   const handleGoToMyLocation = async () => {
     try {
-      const { status } = await LocationAPI.requestForegroundPermissionsAsync();
-      if (status !== 'granted') return;
+      const fix = await GPSManager.getCurrentFix('passengerBalanced');
+      if (!fix || !mapRef.current) return;
 
-      const position = await LocationAPI.getCurrentPositionAsync({
-        accuracy: LocationAPI.Accuracy.Balanced,
-      });
-
-      if (mapRef.current) {
-        mapRef.current.animateToRegion({
-          latitude: position.coords.latitude,
-          longitude: position.coords.longitude,
-          latitudeDelta: 0.0035,
-          longitudeDelta: 0.0016,
-        }, 1000);
-      }
+      mapRef.current.animateToRegion({
+        latitude: fix.coordinate.latitude,
+        longitude: fix.coordinate.longitude,
+        latitudeDelta: 0.0035,
+        longitudeDelta: 0.0016,
+      }, 1000);
     } catch (error) {
       console.error('Error getting current location:', error);
     }

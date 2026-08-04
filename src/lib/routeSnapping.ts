@@ -38,6 +38,8 @@ export interface RouteSnapResult {
   position: LatLng;
   /** Forward bearing (0 = north) of the route segment the point snapped onto. */
   segmentBearing: number;
+  /** Index `i` such that the snap landed on the segment between `path[i]` and `path[i + 1]` — lets a caller compute distance travelled along the path without re-deriving the nearest segment itself. */
+  segmentIndex: number;
 }
 
 /**
@@ -52,7 +54,7 @@ export function snapToPath(point: LatLng, path: LatLng[]): RouteSnapResult | nul
   const originLat = point.latitude;
   const p = toPlanarXY(point, originLat);
 
-  let best: { xy: { x: number; y: number }; bearing: number; distSq: number } | null = null;
+  let best: { xy: { x: number; y: number }; bearing: number; distSq: number; index: number } | null = null;
 
   for (let i = 0; i < path.length - 1; i++) {
     const a = toPlanarXY(path[i], originLat);
@@ -69,12 +71,13 @@ export function snapToPath(point: LatLng, path: LatLng[]): RouteSnapResult | nul
     const distSq = (p.x - projX) ** 2 + (p.y - projY) ** 2;
 
     if (!best || distSq < best.distSq) {
-      best = { xy: { x: projX, y: projY }, bearing: calculateBearing(path[i], path[i + 1]), distSq };
+      best = { xy: { x: projX, y: projY }, bearing: calculateBearing(path[i], path[i + 1]), distSq, index: i };
     }
   }
 
   return {
     position: fromPlanarXY(best!.xy, originLat),
     segmentBearing: best!.bearing,
+    segmentIndex: best!.index,
   };
 }

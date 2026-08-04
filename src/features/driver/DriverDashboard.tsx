@@ -1,7 +1,9 @@
 import { Map } from '@/components/map';
 import { Card, SkeletonBox } from '@/components/ui';
+import * as GPSManager from '@/navigation/NavigationEngine/GPSManager';
+import { useNavigation } from '@/navigation/NavigationEngine/hooks/useNavigation';
+import { safeTransition } from '@/navigation/NavigationEngine/safeTransition';
 import { useDriverStore, useUserStore } from '@/state';
-import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { Alert, ScrollView, StatusBar, Text, View } from 'react-native';
@@ -26,12 +28,22 @@ export function DriverDashboard() {
     declineRequest,
     updateLocation,
   } = useDriverStore();
+  const navigation = useNavigation();
 
   const [driverLocation, setDriverLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const [driverHeading, setDriverHeading] = useState<number>(0);
   const [isAutoFollow, setIsAutoFollow] = useState(true);
   const [lastInteraction, setLastInteraction] = useState(0);
   const mapRef = React.useRef<any>(null);
+  // Mirrors isAutoFollow for the onFix callback below, so that callback can
+  // read its current value without needing isAutoFollow in the tracking
+  // effect's dependency array — toggling auto-follow no longer tears down
+  // and recreates the GPS subscription (a pre-existing inefficiency; see
+  // audit_export/audit_03-08-26_11-58_gps-subscription-audit.md).
+  const isAutoFollowRef = React.useRef(isAutoFollow);
+  useEffect(() => {
+    isAutoFollowRef.current = isAutoFollow;
+  }, [isAutoFollow]);
 
   // Auto-follow logic: Resumes following after 5 seconds of no interaction
   useEffect(() => {
@@ -51,108 +63,63 @@ export function DriverDashboard() {
     setLastInteraction(Date.now());
   };
 
-  // High-accuracy real-time tracking
+  // High-accuracy real-time tracking. GPS acquisition goes entirely through
+  // GPSManager (the only file allowed to create a location subscription —
+  // see src/navigation/NavigationEngine/GPSManager.ts), which owns its own
+  // accuracy-tier/fallback handling internally, so this effect only reacts
+  // to `isOnline`, not `isAutoFollow` — the underlying subscription is no
+  // longer torn down and recreated on every auto-follow toggle.
   useEffect(() => {
-    let subscription: any = null;
+    if (!isOnline) return;
+
+    let cancelled = false;
+    const unsubscribeFix = GPSManager.onFix((fix) => {
+      setDriverLocation(fix.coordinate);
+      updateLocation(fix.coordinate.latitude, fix.coordinate.longitude);
+      if (fix.heading !== undefined) {
+        setDriverHeading(fix.heading);
+      }
+
+      if (isAutoFollowRef.current && mapRef.current) {
+        mapRef.current.animateToRegion({
+          latitude: fix.coordinate.latitude,
+          longitude: fix.coordinate.longitude,
+          latitudeDelta: 0.0035,
+          longitudeDelta: 0.0016,
+        }, 600);
+      }
+    });
 
     async function startTracking() {
       try {
-        // 1. Check if services are enabled
-        const enabled = await Location.hasServicesEnabledAsync().catch(() => false);
-        if (!enabled) {
-          return;
-        }
+        await GPSManager.acquire('foreground', 'driverBestNavigation');
+        if (cancelled) return;
 
-        // 2. Request permissions
-        const { status } = await Location.requestForegroundPermissionsAsync().catch(() => ({ status: 'denied' }));
-        if (status !== 'granted') return;
-
-        // 3. Get initial position with multi-tier fallback
-        let initial = null;
-        const accuracyTiers = [
-          Location.Accuracy.High,
-          Location.Accuracy.Balanced,
-          Location.Accuracy.Low,
-        ];
-
-        for (const accuracy of accuracyTiers) {
-          try {
-            initial = await Location.getCurrentPositionAsync({ accuracy });
-            if (initial) break;
-          } catch (e) {
-            // Continue to next tier
+        // A sibling consumer (or a previous mount) may already have
+        // GPSManager tracking active — seed immediately from its last fix
+        // instead of waiting for the next tick.
+        const existingFix = GPSManager.getLastFix();
+        if (existingFix) {
+          setDriverLocation(existingFix.coordinate);
+          updateLocation(existingFix.coordinate.latitude, existingFix.coordinate.longitude);
+          if (existingFix.heading !== undefined) {
+            setDriverHeading(existingFix.heading);
           }
         }
-
-        // Last resort: Last known position
-        if (!initial) {
-          try {
-            initial = await Location.getLastKnownPositionAsync();
-          } catch (e) { }
-        }
-
-        if (initial) {
-          setDriverLocation(initial.coords);
-          updateLocation(initial.coords.latitude, initial.coords.longitude);
-          if (initial.coords.heading !== null) {
-            setDriverHeading(initial.coords.heading);
-          }
-        }
-
-        // 4. Watch for movement with fallback
-        const startWatching = async (accuracy: Location.LocationAccuracy) => {
-          try {
-            return await Location.watchPositionAsync(
-              {
-                accuracy,
-                distanceInterval: accuracy === Location.Accuracy.High ? 1 : 10,
-                timeInterval: accuracy === Location.Accuracy.High ? 1000 : 5000,
-              },
-              (location) => {
-                setDriverLocation(location.coords);
-                updateLocation(location.coords.latitude, location.coords.longitude);
-                if (location.coords.heading !== null) {
-                  setDriverHeading(location.coords.heading);
-                }
-
-                if (isAutoFollow && mapRef.current) {
-                  mapRef.current.animateToRegion({
-                    latitude: location.coords.latitude,
-                    longitude: location.coords.longitude,
-                    latitudeDelta: 0.0035,
-                    longitudeDelta: 0.0016,
-                  }, 600);
-                }
-              }
-            );
-          } catch (e) {
-            return null;
-          }
-        };
-
-        subscription = await startWatching(Location.Accuracy.High);
-        if (!subscription) {
-          subscription = await startWatching(Location.Accuracy.Balanced);
-        }
-        if (!subscription) {
-          subscription = await startWatching(Location.Accuracy.Low);
-        }
-
       } catch {
-        // Silently handle location errors (including 'unsatisfied device settings').
+        // Silently handle location errors (including 'unsatisfied device settings'),
+        // matching the previous behaviour.
       }
     }
 
-    if (isOnline) {
-      startTracking();
-    }
+    startTracking();
 
     return () => {
-      if (subscription && typeof subscription.remove === 'function') {
-        subscription.remove();
-      }
+      cancelled = true;
+      unsubscribeFix();
+      GPSManager.release();
     };
-  }, [isOnline, isAutoFollow]);
+  }, [isOnline]);
 
   // Leave the pending-orders realtime channel on unmount regardless of
   // online state, so navigating away never leaves a dangling subscription.
@@ -181,7 +148,18 @@ export function DriverDashboard() {
         isOnline ? "Couldn't go offline" : "Couldn't go online",
         'Please check your connection and try again.'
       );
+      return;
     }
+
+    // Mirrors driverStore's online/offline flip onto NavigationStore's mode
+    // machine (IDLE <-> OFFLINE). Guarded: NavigationStore starts at IDLE,
+    // not OFFLINE, so the very first "go online" of a session is a no-op
+    // here (IDLE already means "available") rather than an illegal
+    // transition — see safeTransition's doc comment.
+    safeTransition(() => {
+      if (isOnline) navigation.goOffline();
+      else navigation.goOnline();
+    });
   };
 
   // Handle ride acceptance and navigate to navigation screen
@@ -189,6 +167,15 @@ export function DriverDashboard() {
     if (!driverAccount) return;
     const trip = await acceptRequest(id, driverAccount.id);
     if (trip) {
+      // Drives NavigationStore through the same edges a Customer's own
+      // booking flow would (IDLE -> PREVIEW -> MATCHING), landing on
+      // DRIVER_TO_PICKUP the moment this Transporter accepts — per Phase 5C:
+      // reusing the existing state machine's legal edges, not inventing one.
+      safeTransition(() => {
+        navigation.preview(trip.pickup, trip.destination);
+        navigation.requestMatch();
+        navigation.driverToPickup(driverLocation ?? undefined);
+      });
       router.push('/(driver)/navigation');
     } else {
       Alert.alert('Ride unavailable', 'This ride was just taken by another driver.');

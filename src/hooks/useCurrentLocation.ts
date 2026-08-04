@@ -1,4 +1,6 @@
 import { getHex9 } from '@/core/spatialEngine';
+import * as GPSManager from '@/navigation/NavigationEngine/GPSManager';
+import type { GPSFix } from '@/navigation/NavigationEngine/types';
 import type { Location as LocationType } from '@/types';
 import * as Location from 'expo-location';
 import { useEffect, useState } from 'react';
@@ -6,7 +8,18 @@ import { useEffect, useState } from 'react';
 /**
  * Hook to get and track user's current location
  * Requests permissions and provides current coordinates with H3 spatial indexing
- * 
+ *
+ * GPS acquisition itself goes entirely through GPSManager (the only file
+ * allowed to create a location subscription — see
+ * src/navigation/NavigationEngine/GPSManager.ts). This hook is a consumer,
+ * not an owner: it calls `acquire`/`release` rather than
+ * `Location.watchPositionAsync` directly, so it can be (and is) used by more
+ * than one component at once — e.g. directly here and indirectly via
+ * `useSnappedLocation` in the same screen — without starting a second
+ * watcher. Only the `Location.PermissionStatus` enum is imported from
+ * `expo-location` directly, for typing this hook's existing public
+ * `permissionStatus` field; no location API is called on it.
+ *
  * Returns:
  * - location: { latitude, longitude, address, hex9 }
  * - hex9: H3 hexagon index at resolution 9 (≈170m precision)
@@ -20,19 +33,17 @@ export function useCurrentLocation() {
 
   useEffect(() => {
     let isMounted = true;
-    let subscription: Location.LocationSubscription | null = null;
 
     // Applies a GPS fix: reverse geocodes it, indexes it, and updates state.
-    // Called for every update the position watcher emits, not just the first.
-    async function applyPosition(position: Location.LocationObject) {
-      // 4. Reverse geocode to get address
+    // Called for every update GPSManager delivers, not just the first.
+    async function applyFix(fix: GPSFix) {
       let formattedAddress = 'Current Location';
       let provinceName = null;
 
       try {
         const [address] = await Location.reverseGeocodeAsync({
-          latitude: position.coords.latitude,
-          longitude: position.coords.longitude,
+          latitude: fix.coordinate.latitude,
+          longitude: fix.coordinate.longitude,
         });
 
         if (address) {
@@ -47,15 +58,11 @@ export function useCurrentLocation() {
 
       setProvince(provinceName);
 
-      // Calculate H3 hexagon index
-      const hex9 = getHex9(
-        position.coords.latitude,
-        position.coords.longitude
-      );
+      const hex9 = getHex9(fix.coordinate.latitude, fix.coordinate.longitude);
 
       setLocation({
-        latitude: position.coords.latitude,
-        longitude: position.coords.longitude,
+        latitude: fix.coordinate.latitude,
+        longitude: fix.coordinate.longitude,
         address: formattedAddress || 'Current Location',
         hex9,
       });
@@ -63,62 +70,38 @@ export function useCurrentLocation() {
       setLoading(false);
     }
 
+    let unsubscribeFix: (() => void) | null = null;
+
     async function startWatchingLocation() {
       try {
-        // 1. Check if services are enabled
-        const enabled = await Location.hasServicesEnabledAsync().catch(() => false);
-        if (!enabled) {
-          if (isMounted) {
-            setError('Location services are disabled');
-            setLoading(false);
-          }
-          return;
+        unsubscribeFix = GPSManager.onFix(applyFix);
+
+        // A sibling consumer may already have GPSManager tracking active —
+        // seed immediately from its last fix instead of waiting for the
+        // next tick, matching the old hook's "apply the initial read right
+        // away" feel.
+        const existingFix = GPSManager.getLastFix();
+        if (existingFix) {
+          applyFix(existingFix);
         }
 
-        // 2. Request permissions
-        const { status } = await Location.requestForegroundPermissionsAsync().catch(() => ({ status: 'denied' }));
-
+        await GPSManager.acquire('foreground', 'passengerBalanced');
         if (!isMounted) return;
-        setPermissionStatus(status as Location.PermissionStatus);
+        setPermissionStatus(Location.PermissionStatus.GRANTED);
+      } catch (err) {
+        if (!isMounted) return;
+        unsubscribeFix?.();
+        unsubscribeFix = null;
 
-        if (status !== 'granted') {
+        const code = err instanceof GPSManager.GPSManagerError ? err.code : null;
+        if (code === 'SERVICES_DISABLED') {
+          setError('Location services are disabled');
+        } else if (code === 'PERMISSION_DENIED') {
+          setPermissionStatus(Location.PermissionStatus.DENIED);
           setError('Location permission denied');
-          setLoading(false);
-          return;
+        } else {
+          setError('Failed to get location');
         }
-
-        // 3. Watch position instead of a one-time read, so a "live location"
-        // pickup keeps tracking the customer: a fresh fix every ~60s or after
-        // moving ~50m, whichever comes first.
-        try {
-          subscription = await Location.watchPositionAsync(
-            {
-              accuracy: Location.Accuracy.Balanced,
-              timeInterval: 60000,
-              distanceInterval: 50,
-            },
-            applyPosition
-          );
-
-          if (!isMounted) {
-            subscription.remove();
-            subscription = null;
-          }
-        } catch (e) {
-          // Fallback to last known fix if the watcher can't start
-          const position = await Location.getLastKnownPositionAsync();
-          if (!isMounted) return;
-          if (position) {
-            applyPosition(position);
-          } else {
-            setError('Could not determine current location');
-            setLoading(false);
-          }
-        }
-      } catch (err: any) {
-        if (!isMounted) return;
-
-        setError('Failed to get location');
         setLoading(false);
       }
     }
@@ -127,7 +110,8 @@ export function useCurrentLocation() {
 
     return () => {
       isMounted = false;
-      subscription?.remove();
+      unsubscribeFix?.();
+      GPSManager.release();
     };
   }, []);
 
@@ -136,24 +120,16 @@ export function useCurrentLocation() {
     setError(null);
 
     try {
-      let position = null;
-      try {
-        position = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.Balanced,
-        });
-      } catch (e) {
-        position = await Location.getLastKnownPositionAsync();
-      }
-
-      if (!position) throw new Error('Location unavailable');
+      const fix = await GPSManager.getCurrentFix('passengerBalanced');
+      if (!fix) throw new Error('Location unavailable');
 
       let formattedAddress = 'Current Location';
       let provinceName = null;
 
       try {
         const [address] = await Location.reverseGeocodeAsync({
-          latitude: position.coords.latitude,
-          longitude: position.coords.longitude,
+          latitude: fix.coordinate.latitude,
+          longitude: fix.coordinate.longitude,
         });
 
         if (address) {
@@ -166,15 +142,11 @@ export function useCurrentLocation() {
 
       setProvince(provinceName);
 
-      // Calculate H3 hexagon index
-      const hex9 = getHex9(
-        position.coords.latitude,
-        position.coords.longitude
-      );
+      const hex9 = getHex9(fix.coordinate.latitude, fix.coordinate.longitude);
 
       setLocation({
-        latitude: position.coords.latitude,
-        longitude: position.coords.longitude,
+        latitude: fix.coordinate.latitude,
+        longitude: fix.coordinate.longitude,
         address: formattedAddress || 'Current Location',
         hex9,
       });
@@ -192,7 +164,6 @@ export function useCurrentLocation() {
     permissionStatus,
     province,
     refetch,
-    hasPermission: permissionStatus === 'granted',
+    hasPermission: permissionStatus === Location.PermissionStatus.GRANTED,
   };
 }
-

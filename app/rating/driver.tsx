@@ -1,4 +1,6 @@
 import { Button, RatingStars } from '@/components/ui';
+import { useNavigation } from '@/navigation/NavigationEngine/hooks/useNavigation';
+import { safeTransition } from '@/navigation/NavigationEngine/safeTransition';
 import { useDriverStore } from '@/state';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
@@ -13,6 +15,7 @@ import { Pressable, ScrollView, Text, View } from 'react-native';
  */
 export default function DriverRatingScreen() {
   const { lastTripSummary, finishTrip, ratePassenger } = useDriverStore();
+  const navigation = useNavigation();
 
   const [overallRating, setOverallRating] = useState(0);
   const [punctuality, setPunctuality] = useState(0);
@@ -37,11 +40,13 @@ export default function DriverRatingScreen() {
         payment,
       });
     }
+    safeTransition(() => navigation.reset());
     finishTrip();
     router.replace('/(tabs)');
   };
 
   const handleSkip = () => {
+    safeTransition(() => navigation.reset());
     finishTrip();
     router.replace('/(tabs)');
   };

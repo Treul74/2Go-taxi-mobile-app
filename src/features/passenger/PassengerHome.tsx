@@ -6,12 +6,12 @@ import { BackButton, IconButton } from '@/components/ui';
 import { colors } from '@/constants/theme';
 import { useSnappedLocation } from '@/hooks/useSnappedLocation';
 import { calculateDistanceMeters } from '@/lib/distance';
+import * as GPSManager from '@/navigation/NavigationEngine/GPSManager';
 import { findNearbyDrivers } from '@/services/discoveryEngine';
 import { useRideStore, useSettingsStore } from '@/state';
 import type { CancellationReason, Location as GeoLocation } from '@/types';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import * as Location from 'expo-location';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { KeyboardAvoidingView, Platform, Pressable, StatusBar, StyleSheet, Text, View } from 'react-native';
 import {
@@ -228,23 +228,16 @@ export function PassengerHome() {
 
   const handleRecenter = useCallback(async () => {
     try {
-      const { status } = await Location.requestForegroundPermissionsAsync().catch(() => ({ status: 'denied' }));
-      if (status !== 'granted') return;
+      // A single fresh read via GPSManager (the only file allowed to talk to
+      // expo-location directly — see GPSManager.ts). GPSManager already
+      // falls back to the last known fix internally if a fresh High-accuracy
+      // read is unsatisfied, matching this button's previous behaviour.
+      const fix = await GPSManager.getCurrentFix('passengerBalanced');
 
-      let position = null;
-      try {
-        position = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.High,
-        });
-      } catch (e) {
-        // Fallback to last known if High is unsatisfied
-        position = await Location.getLastKnownPositionAsync();
-      }
-
-      if (position && mapRef.current) {
+      if (fix && mapRef.current) {
         mapRef.current.animateToRegion({
-          latitude: position.coords.latitude,
-          longitude: position.coords.longitude,
+          latitude: fix.coordinate.latitude,
+          longitude: fix.coordinate.longitude,
           latitudeDelta: 0.0035, // Premium street-level zoom
           longitudeDelta: 0.0016,
         }, 1000);

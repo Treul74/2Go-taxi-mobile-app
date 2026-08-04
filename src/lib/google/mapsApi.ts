@@ -70,6 +70,11 @@ export interface DirectionResult {
     text: string;
     value: number; // in seconds
   };
+  /** Live-traffic-adjusted duration — only present when the request passed `{ departureTimeNow: true }` (driving mode only). */
+  durationInTraffic?: {
+    text: string;
+    value: number; // in seconds
+  };
   polyline: string; // encoded polyline
   coordinates: Array<{ latitude: number; longitude: number }>;
   steps: DirectionStep[];
@@ -90,6 +95,14 @@ export interface DirectionStep {
   startLocation: { latitude: number; longitude: number };
   endLocation: { latitude: number; longitude: number };
   maneuver?: string;
+  /** Encoded polyline covering just this step (Google's `step.polyline.points`) — undecoded, so callers only pay the decode cost if they need it. */
+  polyline: string;
+}
+
+/** Extra request options shared by `getDirections`/`getAllRoutes`. */
+export interface DirectionsOptions {
+  /** Requests a live-traffic-adjusted duration via `departure_time=now` (populates `DirectionResult.durationInTraffic`). Only meaningful for `mode: 'driving'`. */
+  departureTimeNow?: boolean;
 }
 
 /**
@@ -233,12 +246,72 @@ export async function getPlaceDetails(placeId: string): Promise<PlaceDetails | n
 }
 
 /**
+ * Maps one raw Google Directions API `route` entry (as found in
+ * `data.routes[]`) into this module's `DirectionResult` shape. Shared by
+ * `getDirections` (single route) and `getAllRoutes` (every alternative), so
+ * the two can never drift into separately-maintained mapping logic.
+ */
+function mapGoogleRouteToDirectionResult(route: any): DirectionResult {
+  const leg = route.legs[0];
+
+  // Decode polyline
+  const polylineEncoded = route.overview_polyline.points;
+  const decodedPath = decode(polylineEncoded);
+  const coordinates = decodedPath.map(([lat, lng]) => ({
+    latitude: lat,
+    longitude: lng,
+  }));
+
+  const steps: DirectionStep[] = (leg.steps || []).map((step: any) => ({
+    instruction: step.html_instructions || '',
+    distance: {
+      text: step.distance.text,
+      value: step.distance.value,
+    },
+    duration: {
+      text: step.duration.text,
+      value: step.duration.value,
+    },
+    startLocation: {
+      latitude: step.start_location.lat,
+      longitude: step.start_location.lng,
+    },
+    endLocation: {
+      latitude: step.end_location.lat,
+      longitude: step.end_location.lng,
+    },
+    maneuver: step.maneuver,
+    polyline: step.polyline?.points ?? '',
+  }));
+
+  return {
+    distance: {
+      text: leg.distance.text,
+      value: leg.distance.value,
+    },
+    duration: {
+      text: leg.duration.text,
+      value: leg.duration.value,
+    },
+    durationInTraffic: leg.duration_in_traffic
+      ? { text: leg.duration_in_traffic.text, value: leg.duration_in_traffic.value }
+      : undefined,
+    polyline: polylineEncoded,
+    coordinates,
+    steps,
+    startAddress: leg.start_address,
+    endAddress: leg.end_address,
+  };
+}
+
+/**
  * Get directions between two points
  */
 export async function getDirections(
   origin: Location,
   destination: Location,
-  mode: 'driving' | 'walking' | 'bicycling' | 'transit' = 'driving'
+  mode: 'driving' | 'walking' | 'bicycling' | 'transit' = 'driving',
+  options?: DirectionsOptions
 ): Promise<DirectionResult | null> {
   const apiKey = getGoogleMapsApiKey();
   if (!apiKey) {
@@ -252,6 +325,9 @@ export async function getDirections(
       mode,
       key: apiKey,
     });
+    if (options?.departureTimeNow) {
+      params.append('departure_time', 'now');
+    }
 
     const response = await fetch(
       `${BASE_URL}/directions/json?${params.toString()}`
@@ -264,56 +340,57 @@ export async function getDirections(
       return null;
     }
 
-    const route = data.routes[0];
-    const leg = route.legs[0];
-
-    // Decode polyline
-    const polylineEncoded = route.overview_polyline.points;
-    const decodedPath = decode(polylineEncoded);
-    const coordinates = decodedPath.map(([lat, lng]) => ({
-      latitude: lat,
-      longitude: lng,
-    }));
-
-    const steps: DirectionStep[] = (leg.steps || []).map((step: any) => ({
-      instruction: step.html_instructions || '',
-      distance: {
-        text: step.distance.text,
-        value: step.distance.value,
-      },
-      duration: {
-        text: step.duration.text,
-        value: step.duration.value,
-      },
-      startLocation: {
-        latitude: step.start_location.lat,
-        longitude: step.start_location.lng,
-      },
-      endLocation: {
-        latitude: step.end_location.lat,
-        longitude: step.end_location.lng,
-      },
-      maneuver: step.maneuver,
-    }));
-
-    return {
-      distance: {
-        text: leg.distance.text,
-        value: leg.distance.value,
-      },
-      duration: {
-        text: leg.duration.text,
-        value: leg.duration.value,
-      },
-      polyline: polylineEncoded,
-      coordinates,
-      steps,
-      startAddress: leg.start_address,
-      endAddress: leg.end_address,
-    };
+    return mapGoogleRouteToDirectionResult(data.routes[0]);
   } catch (error) {
     console.error('Error fetching directions:', error);
     return null;
+  }
+}
+
+/**
+ * Get every alternative route Google offers between two points (Directions
+ * API `alternatives=true`). Kept as a separate function rather than a param
+ * on `getDirections` so that function's existing single-route contract
+ * never changes for its current callers.
+ */
+export async function getAllRoutes(
+  origin: Location,
+  destination: Location,
+  mode: 'driving' | 'walking' | 'bicycling' | 'transit' = 'driving',
+  options?: DirectionsOptions
+): Promise<DirectionResult[]> {
+  const apiKey = getGoogleMapsApiKey();
+  if (!apiKey) {
+    throw new Error('Google Maps API key not configured');
+  }
+
+  try {
+    const params = new URLSearchParams({
+      origin: `${origin.latitude},${origin.longitude}`,
+      destination: `${destination.latitude},${destination.longitude}`,
+      mode,
+      alternatives: 'true',
+      key: apiKey,
+    });
+    if (options?.departureTimeNow) {
+      params.append('departure_time', 'now');
+    }
+
+    const response = await fetch(
+      `${BASE_URL}/directions/json?${params.toString()}`
+    );
+
+    const data = await response.json();
+
+    if (data.status !== 'OK') {
+      console.error('Directions (alternatives) error:', data.status, data.error_message);
+      return [];
+    }
+
+    return (data.routes || []).map(mapGoogleRouteToDirectionResult);
+  } catch (error) {
+    console.error('Error fetching alternative directions:', error);
+    return [];
   }
 }
 

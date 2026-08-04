@@ -72,6 +72,7 @@ export const Map = React.forwardRef<any, MapProps>(({
   isLiveLocation = false,
   arrivalTime,
   mapPadding,
+  disableInternalCamera = false,
 }: MapProps, ref) => {
   const mapRef = useRef<any>(null);
   const [isReady, setIsReady] = useState(false);
@@ -194,6 +195,7 @@ export const Map = React.forwardRef<any, MapProps>(({
 
   // Center on user location when it first arrives if no markers are set
   useEffect(() => {
+    if (disableInternalCamera) return;
     if (isReady && mapRef.current && userLocation && !pickup && !destination && !driverLocation) {
       mapRef.current.animateToRegion({
         latitude: userLocation.latitude,
@@ -202,10 +204,11 @@ export const Map = React.forwardRef<any, MapProps>(({
         longitudeDelta: 0.0016,
       }, 1000);
     }
-  }, [userLocation?.latitude, userLocation?.longitude, isReady]);
+  }, [userLocation?.latitude, userLocation?.longitude, isReady, disableInternalCamera]);
 
   // Center on driver location if it updates (unless custom follow is enabled)
   useEffect(() => {
+    if (disableInternalCamera) return;
     if (isReady && mapRef.current && driverLocation && autoFollowDriver) {
       mapRef.current.animateToRegion({
         latitude: driverLocation.latitude,
@@ -214,11 +217,12 @@ export const Map = React.forwardRef<any, MapProps>(({
         longitudeDelta: 0.0016,
       }, 500);
     }
-  }, [driverLocation?.latitude, driverLocation?.longitude, isReady, autoFollowDriver]);
+  }, [driverLocation?.latitude, driverLocation?.longitude, isReady, autoFollowDriver, disableInternalCamera]);
 
 
   // Fit map to show all markers when they change
   useEffect(() => {
+    if (disableInternalCamera) return;
     if (!isReady || !mapRef.current || driverLocation) return; // Skip if we are in driver mode (handled above)
 
     const markers = [];
@@ -240,7 +244,7 @@ export const Map = React.forwardRef<any, MapProps>(({
         longitudeDelta: 0.0016,
       });
     }
-  }, [pickup, destination, isReady, !!driverLocation]);
+  }, [pickup, destination, isReady, !!driverLocation, disableInternalCamera]);
 
   const handleMapReady = () => {
     setIsReady(true);
@@ -531,8 +535,14 @@ export const Map = React.forwardRef<any, MapProps>(({
         )}
       </MapView>
 
-      {/* Zoom Controls */}
-      {showZoomControls && (
+      {/* Zoom Controls — `handleZoom` drives the camera directly via
+          `mapRef`, so this must stay off whenever `disableInternalCamera` is
+          set (CameraController owns the camera instead): otherwise this is
+          a second, uncoordinated `animateCamera()` call site reachable from
+          the same screen. No manual zoom override exists on CameraController
+          today (see NavigationControls.tsx's own doc comment), so these
+          buttons simply don't render in that case rather than fighting it. */}
+      {showZoomControls && !disableInternalCamera && (
         <View style={styles.zoomControls}>
           <TouchableOpacity onPress={() => handleZoom(true)} style={styles.zoomButton}>
             <Ionicons name="add" size={24} color="#26344F" />
