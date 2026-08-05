@@ -33,6 +33,249 @@ try {
   hasNativeModule = false;
 }
 
+// ---------------------------------------------------------------------------
+// Performance (Phase 7F): memoized layers.
+//
+// `Map`'s driver/vehicle markers legitimately re-render on every GPS fix
+// (~1/sec while navigating) — that's the whole point, the driver moved. But
+// before this pass, the route polyline/arrows/turn-highlights and the
+// pickup/destination/H3-grid/ETA-badge markers lived inline in the same
+// render, so React re-diffed all of them too on every single fix even
+// though none of their own props (route, pickup, destination, H3 grid, ETA)
+// had changed. `React.memo` here means React bails out of re-rendering
+// (and re-invoking) these two blocks unless the specific props each one
+// actually reads change — a `driverLocation`-only re-render of `Map` no
+// longer touches them at all. Pure extraction: every prop and every line of
+// JSX below is unchanged from before, just moved into its own component so
+// it can be memoized independently of the driver marker.
+// ---------------------------------------------------------------------------
+
+interface RoutePolylineLayerProps {
+  showRoute: boolean;
+  routeCoordinates: { latitude: number; longitude: number }[];
+  directionArrows: { coordinate: { latitude: number; longitude: number }; bearing: number }[];
+  turnHighlights: { latitude: number; longitude: number }[][];
+}
+
+const RoutePolylineLayer = React.memo(function RoutePolylineLayer({
+  showRoute,
+  routeCoordinates,
+  directionArrows,
+  turnHighlights,
+}: RoutePolylineLayerProps) {
+  if (!showRoute || routeCoordinates.length === 0) return null;
+
+  return (
+    <>
+      {/* Layer 1: Base Route */}
+      <Polyline
+        coordinates={routeCoordinates}
+        strokeColor={colors.accent}
+        strokeWidth={5}
+        lineCap="round"
+        lineJoin="round"
+        zIndex={1}
+      />
+
+      {/* Layer 2: Direction Arrows */}
+      {directionArrows.map((arrow, index) => (
+        <Marker
+          key={`arrow-${index}`}
+          coordinate={arrow.coordinate}
+          anchor={{ x: 0.5, y: 0.5 }}
+          flat={true}
+          tracksViewChanges={false}
+          zIndex={2}
+        >
+          <View style={{ transform: [{ rotate: `${arrow.bearing}deg` }] }}>
+            <Ionicons name="chevron-forward" size={12} color="#1F2937" />
+          </View>
+        </Marker>
+      ))}
+
+      {/* Layer 3: Turn Highlights (Yellow Segments) — rendered after (and
+          z-indexed above) the base route so upcoming turns stay visible
+          over the orange line rather than blending under it */}
+      {turnHighlights.map((segment, index) => (
+        <Polyline
+          key={`turn-${index}`}
+          coordinates={segment}
+          strokeColor="#F4C430"
+          strokeWidth={5}
+          lineCap="round"
+          lineJoin="round"
+          zIndex={3}
+        />
+      ))}
+    </>
+  );
+});
+
+interface PickupDestinationLayerProps {
+  pickup: MapProps['pickup'];
+  destination: MapProps['destination'];
+  showSearchPulse: boolean;
+  showPickupAsUserLocation: boolean;
+  hidePickupPin: boolean;
+  isLiveLocation: boolean;
+  arrivalTime: MapProps['arrivalTime'];
+  showH3Grid: boolean;
+  h3Grid: NonNullable<MapProps['h3Grid']>;
+  eta: MapProps['eta'];
+  etaPosition: MapProps['etaPosition'];
+}
+
+const PickupDestinationLayer = React.memo(function PickupDestinationLayer({
+  pickup,
+  destination,
+  showSearchPulse,
+  showPickupAsUserLocation,
+  hidePickupPin,
+  isLiveLocation,
+  arrivalTime,
+  showH3Grid,
+  h3Grid,
+  eta,
+  etaPosition,
+}: PickupDestinationLayerProps) {
+  return (
+    <>
+      {/* Pickup marker — the pulsing user-location dot on the live tracking
+          screen (the pickup is the customer's fixed spot), a plain pin everywhere else */}
+      {pickup && (
+        showSearchPulse ? (
+          <Marker
+            key="pickup-search-pulse"
+            coordinate={{
+              latitude: pickup.latitude,
+              longitude: pickup.longitude,
+            }}
+            anchor={{ x: 0.5, y: 0.5 }}
+            tracksViewChanges={true}
+          >
+            <SearchPulseMarker />
+          </Marker>
+        ) : showPickupAsUserLocation ? (
+          <Marker
+            key="pickup-marker"
+            coordinate={{
+              latitude: pickup.latitude,
+              longitude: pickup.longitude,
+            }}
+            anchor={{ x: 0.5, y: 0.5 }}
+            tracksViewChanges={true}
+          >
+            <UserLocationMarker />
+          </Marker>
+        ) : (
+          !hidePickupPin && !isLiveLocation && (
+            <Marker
+              coordinate={{
+                latitude: pickup.latitude,
+                longitude: pickup.longitude,
+              }}
+              title="Pickup"
+              description={pickup.address}
+              pinColor="#00D26A"
+            />
+          )
+        )
+      )}
+
+      {/* Destination marker — a white "arrive at" callout bubble once an
+          arrival time is known, otherwise the default red pin */}
+      {destination && (
+        arrivalTime ? (
+          <Marker
+            key="destination-arrival-time"
+            coordinate={{
+              latitude: destination.latitude,
+              longitude: destination.longitude,
+            }}
+            anchor={{ x: 0.5, y: 1 }}
+            tracksViewChanges={false}
+          >
+            <ArrivalTimeMarker arrivalTime={arrivalTime} />
+          </Marker>
+        ) : (
+          <Marker
+            coordinate={{
+              latitude: destination.latitude,
+              longitude: destination.longitude,
+            }}
+            title="Destination"
+            description={destination.address}
+            pinColor="#FE5035"
+          />
+        )
+      )}
+
+      {/* H3 Grid Visualization */}
+      {showH3Grid && Polygon && (
+        <>
+          {h3Grid.map((hex) => {
+            const center = getHexCenter(hex);
+            return (
+              <React.Fragment key={`h3-visual-${hex}`}>
+                {/* Hexagon Polygon */}
+                <Polygon
+                  coordinates={getHexBoundary(hex)}
+                  fillColor="rgba(255, 0, 0, 0.1)"
+                  strokeColor="#FF0000"
+                  strokeWidth={1}
+                  geodesic={true}
+                />
+                {/* Hexagon ID Label */}
+                <Marker
+                  coordinate={center}
+                  anchor={{ x: 0.5, y: 0.5 }}
+                  tracksViewChanges={false}
+                >
+                  <View className="bg-white/80 px-1 rounded border border-red-500">
+                    <Text style={{ fontSize: 8, color: '#FF0000', fontWeight: 'bold' }}>
+                      {hex.substring(hex.length - 6)}
+                    </Text>
+                  </View>
+                </Marker>
+              </React.Fragment>
+            );
+          })}
+        </>
+      )}
+
+      {/* ETA Badge Overlay */}
+      {eta && (etaPosition || pickup || destination) && (
+        <Marker
+          coordinate={
+            etaPosition ||
+            (pickup && !destination ? pickup : destination) ||
+            { latitude: 0, longitude: 0 }
+          }
+          anchor={{ x: 0.5, y: -0.8 }} // Position above the marker
+          tracksViewChanges={false}
+          zIndex={999} // Ensure it's on top
+        >
+          <View style={{
+            backgroundColor: 'white',
+            paddingHorizontal: 12,
+            paddingVertical: 6,
+            borderRadius: 8,
+            shadowColor: "#000",
+            shadowOffset: { width: 0, height: 2 },
+            shadowOpacity: 0.25,
+            shadowRadius: 3.84,
+            elevation: 5,
+          }}>
+            <Text style={{ fontSize: 12, fontWeight: 'bold', color: '#26344F' }}>
+              {eta}
+            </Text>
+          </View>
+        </Marker>
+      )}
+    </>
+  );
+});
+
 /**
  * Native Map Component (iOS/Android)
  * Uses react-native-maps with Google Maps provider
@@ -354,185 +597,26 @@ export const Map = React.forwardRef<any, MapProps>(({
           <AnimatedUserLocation coordinate={userLocation} />
         )}
 
-        {/* Pickup marker — the pulsing user-location dot on the live tracking
-            screen (the pickup is the customer's fixed spot), a plain pin everywhere else */}
-        {pickup && (
-          showSearchPulse ? (
-            <Marker
-              key="pickup-search-pulse"
-              coordinate={{
-                latitude: pickup.latitude,
-                longitude: pickup.longitude,
-              }}
-              anchor={{ x: 0.5, y: 0.5 }}
-              tracksViewChanges={true}
-            >
-              <SearchPulseMarker />
-            </Marker>
-          ) : showPickupAsUserLocation ? (
-            <Marker
-              key="pickup-marker"
-              coordinate={{
-                latitude: pickup.latitude,
-                longitude: pickup.longitude,
-              }}
-              anchor={{ x: 0.5, y: 0.5 }}
-              tracksViewChanges={true}
-            >
-              <UserLocationMarker />
-            </Marker>
-          ) : (
-            !hidePickupPin && !isLiveLocation && (
-              <Marker
-                coordinate={{
-                  latitude: pickup.latitude,
-                  longitude: pickup.longitude,
-                }}
-                title="Pickup"
-                description={pickup.address}
-                pinColor="#00D26A"
-              />
-            )
-          )
-        )}
+        <PickupDestinationLayer
+          pickup={pickup}
+          destination={destination}
+          showSearchPulse={showSearchPulse}
+          showPickupAsUserLocation={showPickupAsUserLocation}
+          hidePickupPin={hidePickupPin}
+          isLiveLocation={isLiveLocation}
+          arrivalTime={arrivalTime}
+          showH3Grid={showH3Grid}
+          h3Grid={h3Grid}
+          eta={eta}
+          etaPosition={etaPosition}
+        />
 
-        {/* Destination marker — a white "arrive at" callout bubble once an
-            arrival time is known, otherwise the default red pin */}
-        {destination && (
-          arrivalTime ? (
-            <Marker
-              key="destination-arrival-time"
-              coordinate={{
-                latitude: destination.latitude,
-                longitude: destination.longitude,
-              }}
-              anchor={{ x: 0.5, y: 1 }}
-              tracksViewChanges={false}
-            >
-              <ArrivalTimeMarker arrivalTime={arrivalTime} />
-            </Marker>
-          ) : (
-            <Marker
-              coordinate={{
-                latitude: destination.latitude,
-                longitude: destination.longitude,
-              }}
-              title="Destination"
-              description={destination.address}
-              pinColor="#FE5035"
-            />
-          )
-        )}
-
-        {/* OSM-Style Route Rendering */}
-        {showRoute && routeCoordinates.length > 0 && (
-          <>
-            {/* Layer 1: Base Route */}
-            <Polyline
-              coordinates={routeCoordinates}
-              strokeColor={colors.accent}
-              strokeWidth={5}
-              lineCap="round"
-              lineJoin="round"
-              zIndex={1}
-            />
-
-            {/* Layer 2: Direction Arrows */}
-            {directionArrows.map((arrow, index) => (
-              <Marker
-                key={`arrow-${index}`}
-                coordinate={arrow.coordinate}
-                anchor={{ x: 0.5, y: 0.5 }}
-                flat={true}
-                tracksViewChanges={false}
-                zIndex={2}
-              >
-                <View style={{ transform: [{ rotate: `${arrow.bearing}deg` }] }}>
-                  <Ionicons name="chevron-forward" size={12} color="#1F2937" />
-                </View>
-              </Marker>
-            ))}
-
-            {/* Layer 3: Turn Highlights (Yellow Segments) — rendered after (and
-                z-indexed above) the base route so upcoming turns stay visible
-                over the orange line rather than blending under it */}
-            {turnHighlights.map((segment, index) => (
-              <Polyline
-                key={`turn-${index}`}
-                coordinates={segment}
-                strokeColor="#F4C430"
-                strokeWidth={5}
-                lineCap="round"
-                lineJoin="round"
-                zIndex={3}
-              />
-            ))}
-          </>
-        )}
-
-
-        {/* H3 Grid Visualization */}
-        {showH3Grid && Polygon && (
-          <>
-            {h3Grid.map((hex) => {
-              const center = getHexCenter(hex);
-              return (
-                <React.Fragment key={`h3-visual-${hex}`}>
-                  {/* Hexagon Polygon */}
-                  <Polygon
-                    coordinates={getHexBoundary(hex)}
-                    fillColor="rgba(255, 0, 0, 0.1)"
-                    strokeColor="#FF0000"
-                    strokeWidth={1}
-                    geodesic={true}
-                  />
-                  {/* Hexagon ID Label */}
-                  <Marker
-                    coordinate={center}
-                    anchor={{ x: 0.5, y: 0.5 }}
-                    tracksViewChanges={false}
-                  >
-                    <View className="bg-white/80 px-1 rounded border border-red-500">
-                      <Text style={{ fontSize: 8, color: '#FF0000', fontWeight: 'bold' }}>
-                        {hex.substring(hex.length - 6)}
-                      </Text>
-                    </View>
-                  </Marker>
-                </React.Fragment>
-              );
-            })}
-          </>
-        )}
-
-        {/* ETA Badge Overlay */}
-        {eta && (etaPosition || pickup || destination) && (
-          <Marker
-            coordinate={
-              etaPosition ||
-              (pickup && !destination ? pickup : destination) ||
-              { latitude: 0, longitude: 0 }
-            }
-            anchor={{ x: 0.5, y: -0.8 }} // Position above the marker
-            tracksViewChanges={false}
-            zIndex={999} // Ensure it's on top
-          >
-            <View style={{
-              backgroundColor: 'white',
-              paddingHorizontal: 12,
-              paddingVertical: 6,
-              borderRadius: 8,
-              shadowColor: "#000",
-              shadowOffset: { width: 0, height: 2 },
-              shadowOpacity: 0.25,
-              shadowRadius: 3.84,
-              elevation: 5,
-            }}>
-              <Text style={{ fontSize: 12, fontWeight: 'bold', color: '#26344F' }}>
-                {eta}
-              </Text>
-            </View>
-          </Marker>
-        )}
+        <RoutePolylineLayer
+          showRoute={showRoute}
+          routeCoordinates={routeCoordinates}
+          directionArrows={directionArrows}
+          turnHighlights={turnHighlights}
+        />
       </MapView>
 
       {/* Zoom Controls — `handleZoom` drives the camera directly via

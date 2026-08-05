@@ -27,7 +27,7 @@ import {
   type NavigationTransitionError,
 } from './NavigationModes';
 import { navigationEventBus } from './NavigationEvents';
-import type { GPSFix, GPSSignalStatus, LatLng, NavigationActions, NavigationDataActions, NavigationState, RouteData } from './types';
+import type { GPSFix, GPSSignalStatus, LatLng, NavigationActions, NavigationDataActions, NavigationState, RouteData, RouteProgress } from './types';
 
 const initialState: NavigationState = {
   // Lifecycle
@@ -132,6 +132,35 @@ function applyTransition(
 
 type NavigationStore = NavigationState & NavigationActions & NavigationDataActions;
 
+/** Pure patch computation shared by `setGpsFix` and `setGpsFixWithProgress` (Phase 7F) — kept as one function so the two call sites can never drift apart on what a fix update actually changes. */
+function gpsFixPatch(fix: GPSFix): Pick<NavigationState, 'driverLocation' | 'heading' | 'speed' | 'gpsState'> {
+  return {
+    driverLocation: fix.coordinate,
+    heading: fix.heading ?? null,
+    speed: fix.speed ?? null,
+    gpsState: {
+      status: 'active',
+      lastFix: fix,
+      accuracyMeters: fix.accuracy ?? null,
+    },
+  };
+}
+
+/** Pure patch computation shared by `setRouteProgress` and `setGpsFixWithProgress` (Phase 7F) — same reasoning as `gpsFixPatch`. */
+function routeProgressPatch(
+  state: NavigationState,
+  progress: RouteProgress
+): Pick<NavigationState, 'progress' | 'distanceRemainingMeters' | 'etaSeconds' | 'currentStep' | 'currentInstruction'> {
+  const step = state.route?.steps[progress.activeStepIndex] ?? null;
+  return {
+    progress,
+    distanceRemainingMeters: progress.distanceRemainingMeters,
+    etaSeconds: progress.durationRemainingSeconds,
+    currentStep: step,
+    currentInstruction: step?.instruction ?? null,
+  };
+}
+
 export const useNavigationStore = create<NavigationStore>()((set) => ({
   ...initialState,
 
@@ -219,22 +248,17 @@ export const useNavigationStore = create<NavigationStore>()((set) => ({
     set({ cameraState: 'FREE_EXPLORE', followMode: false, recenterState: 'available' });
   },
 
+  setNavigationEnabled: (enabled: boolean) => {
+    set({ navigationEnabled: enabled });
+  },
+
   // --- Data setters (internal — see NavigationDataActions doc in types.ts) ---
   // Not part of the screen-facing NavigationActions surface: only
   // NavigationProvider (GPS) and the route-fetching screens (route) call
   // these, via `useNavigationStore.getState()` rather than `useNavigation()`.
 
   setGpsFix: (fix: GPSFix) => {
-    set({
-      driverLocation: fix.coordinate,
-      heading: fix.heading ?? null,
-      speed: fix.speed ?? null,
-      gpsState: {
-        status: 'active',
-        lastFix: fix,
-        accuracyMeters: fix.accuracy ?? null,
-      },
-    });
+    set(gpsFixPatch(fix));
   },
 
   setGpsStatus: (status: GPSSignalStatus) => {
@@ -260,5 +284,13 @@ export const useNavigationStore = create<NavigationStore>()((set) => ({
       distanceMeters: route.distanceMeters,
       etaSeconds: route.durationInTrafficSeconds ?? route.durationSeconds,
     });
+  },
+
+  setRouteProgress: (progress: RouteProgress) => {
+    set((state) => routeProgressPatch(state, progress));
+  },
+
+  setGpsFixWithProgress: (fix: GPSFix, progress: RouteProgress) => {
+    set((state) => ({ ...gpsFixPatch(fix), ...routeProgressPatch(state, progress) }));
   },
 }));

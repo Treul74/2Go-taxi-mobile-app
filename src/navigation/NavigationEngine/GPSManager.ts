@@ -146,7 +146,26 @@ function emit<T extends GPSManagerEventType>(type: T, payload: GPSManagerEventPa
   const event: GPSManagerEvent<T> = { type, payload, timestamp: Date.now() };
   const handlers = gpsHandlersByType.get(type);
   if (!handlers) return;
-  for (const handler of [...handlers]) {
+  const list = [...handlers];
+  // TEMPORARY (Phase 7R.1 runtime verification) — dev-only per-listener
+  // logging + isolation, to confirm/reject whether a throwing listener
+  // silently starves listeners registered after it. Remove after
+  // verification: the real bare `handler(event)` loop this replaces has no
+  // try/catch, so in production a throw here still aborts the remaining
+  // listeners for this dispatch (that is exactly the thing being verified).
+  if (__DEV__) {
+    list.forEach((handler, index) => {
+      console.log(`[GPSManager.emit] ${type} -> listener ${index + 1}/${list.length}: before invocation`);
+      try {
+        handler(event as GPSManagerEvent<GPSManagerEventType>);
+        console.log(`[GPSManager.emit] ${type} -> listener ${index + 1}/${list.length}: after invocation (ok)`);
+      } catch (error) {
+        console.log(`[GPSManager.emit] ${type} -> listener ${index + 1}/${list.length}: CAUGHT EXCEPTION`, error);
+      }
+    });
+    return;
+  }
+  for (const handler of list) {
     handler(event as GPSManagerEvent<GPSManagerEventType>);
   }
 }

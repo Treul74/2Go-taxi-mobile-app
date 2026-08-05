@@ -5,10 +5,14 @@ import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors } from '@/constants/theme';
+import { NavigationArrivalTime } from './NavigationArrivalTime';
 import { NavigationCompass } from './NavigationCompass';
 import { NavigationControls, type NavigationControlsProps } from './NavigationControls';
+import { NavigationLaneGuidance } from './NavigationLaneGuidance';
+import { NavigationRoadName } from './NavigationRoadName';
 import { NavigationSpeedWidget, type NavigationSpeedWidgetProps } from './NavigationSpeedWidget';
 import { NavigationTurnBanner } from './NavigationTurnBanner';
+import { NavigationVoiceToggle } from './NavigationVoiceToggle';
 
 export interface NavigationHUDProps extends NavigationControlsProps, NavigationSpeedWidgetProps {}
 
@@ -40,10 +44,11 @@ function EtaChip() {
  * Left: Turn icon, Distance, Instruction. Top Right: Clock, ETA, Location,
  * Remaining distance. Bottom Left: Current speed, Speed limit. Right Side:
  * Layers, Compass, Center, Zoom."). Composes the individually-reusable
- * pieces (`NavigationTurnBanner`, `NavigationSpeedWidget`,
- * `NavigationCompass`, `NavigationControls`) into the Bible's layout — a
- * screen that wants a custom arrangement can render those pieces directly
- * instead of this composite.
+ * pieces (`NavigationTurnBanner`, `NavigationRoadName`,
+ * `NavigationLaneGuidance`, `NavigationArrivalTime`, `NavigationSpeedWidget`,
+ * `NavigationCompass`, `NavigationControls`, `NavigationVoiceToggle`) into
+ * the Bible's layout — a screen that wants a custom arrangement can render
+ * those pieces directly instead of this composite.
  *
  * Deliberately excludes the bottom sheet (`NavigationBottomCard`) and
  * arrival card (`NavigationArrivalCard`): the Bible documents "Bottom Sheet
@@ -61,8 +66,17 @@ export function NavigationHUD({ onZoomIn, onZoomOut, onToggleLayers, speedLimitK
     <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
       <SafeAreaView className="flex-1" edges={['top', 'bottom']} pointerEvents="box-none">
         <View className="flex-row justify-between items-start px-4 pt-2 gap-3">
-          <NavigationTurnBanner />
-          <EtaChip />
+          <View className="flex-1 gap-2" pointerEvents="box-none">
+            <NavigationTurnBanner />
+            <View className="flex-row gap-2">
+              <NavigationLaneGuidance />
+              <NavigationRoadName />
+            </View>
+          </View>
+          <View className="gap-2 items-end" pointerEvents="box-none">
+            <EtaChip />
+            <NavigationArrivalTime />
+          </View>
         </View>
 
         <View className="flex-1" pointerEvents="box-none" />
@@ -70,6 +84,7 @@ export function NavigationHUD({ onZoomIn, onZoomOut, onToggleLayers, speedLimitK
         <View className="flex-row justify-between items-end px-4 pb-2 gap-3">
           <NavigationSpeedWidget speedLimitKph={speedLimitKph} />
           <View className="items-center gap-3">
+            <NavigationVoiceToggle />
             <NavigationCompass />
             <NavigationControls onZoomIn={onZoomIn} onZoomOut={onZoomOut} onToggleLayers={onToggleLayers} />
           </View>

@@ -4,12 +4,12 @@
  * Scope note: an earlier architecture-only pass on this file also declared
  * route/GPS event types (ROUTE_CALCULATED, REROUTE_TRIGGERED, STEP_ADVANCED,
  * OFF_ROUTE_DETECTED, GPS_SIGNAL_LOST/RECOVERED) as forward-looking
- * placeholders. Those belong to the Route/GPS implementation phases, not
- * the state machine, so they've been removed here to keep this file honest
- * about what's actually implemented — reintroduce them alongside whichever
- * phase implements routing/GPS.
+ * placeholders. Those were removed to keep this file honest about what's
+ * actually implemented, to be reintroduced alongside whichever phase
+ * implements routing. Phase 7 (RouteProgressTracker) is that phase for
+ * rerouting specifically — see ROUTE_RECALCULATED below; the rest remain
+ * unimplemented.
  *
- * Only two events exist right now, both purely about mode transitions:
  * MODE_CHANGED (a transition succeeded) and TRANSITION_REJECTED (a
  * transition was attempted and rejected by NavigationStore before it threw
  * `NavigationTransitionError`). Emitting a rejection event as well as
@@ -22,6 +22,8 @@ import type { NavigationMode } from './NavigationModes';
 export interface NavigationEventPayloadMap {
   MODE_CHANGED: { previous: NavigationMode; next: NavigationMode };
   TRANSITION_REJECTED: { from: NavigationMode; attempted: NavigationMode; reason: string };
+  /** RouteProgressTracker.checkAndReroute fetched and published a fresh route because the actor drifted off the previous one — see RouteEngine.evaluateReroute. */
+  ROUTE_RECALCULATED: { routeId: string; reason: 'off-route' };
 }
 
 export type NavigationEventType = keyof NavigationEventPayloadMap;

@@ -1,7 +1,9 @@
 import { colors } from '@/constants/theme';
 import { getGoogleMapsApiKey, hasGoogleMapsApiKey } from '@/constants/env';
 import { mapStyle } from '@/lib/google/mapStyle';
+import { useAnimatedMarkerWeb } from '@/hooks/useAnimatedMarkerWeb';
 import { useRoadSnappedVehicle } from '@/hooks/useRoadSnappedVehicle';
+import { DRIVER_MARKER_PROFILE } from '@/navigation/NavigationEngine/MarkerAnimator';
 import { GoogleMap, Marker, OverlayView, Polyline, useJsApiLoader } from '@react-google-maps/api';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
@@ -62,6 +64,17 @@ export function Map({
   // snapped positions rather than trusting a possibly noisy/stale compass
   // heading. Falls back to the raw coordinate/heading when no route exists.
   const snappedDriver = useRoadSnappedVehicle(driverLocation, driverHeading, routeCoordinates);
+
+  // Smooths the driver marker's position/rotation the same way the native
+  // renderer already does via `useAnimatedMarker` (Reanimated) — this is
+  // the `requestAnimationFrame`-driven twin for `@react-google-maps/api`,
+  // which has no worklet equivalent. Without this, every snapped fix jumped
+  // the OverlayView straight to its new position/rotation with no easing.
+  const animatedDriver = useAnimatedMarkerWeb({
+    coordinate: snappedDriver?.position ?? null,
+    heading: snappedDriver?.heading ?? null,
+    profile: DRIVER_MARKER_PROFILE,
+  });
 
   // Fit map to show all markers when they change
   useEffect(() => {
@@ -166,14 +179,16 @@ export function Map({
         onClick={handleMapClick}
       >
         {/* Driver vehicle marker — same top-down car asset as native, snapped
-            to the route path with a road-derived heading */}
-        {snappedDriver && (
+            to the route path with a road-derived heading, position/rotation
+            smoothed by useAnimatedMarkerWeb (never jumps straight to a raw
+            fix, matching native's Reanimated-driven marker). */}
+        {animatedDriver.position && (
           <OverlayView
-            position={{ lat: snappedDriver.position.latitude, lng: snappedDriver.position.longitude }}
+            position={{ lat: animatedDriver.position.latitude, lng: animatedDriver.position.longitude }}
             mapPaneName={OverlayView.OVERLAY_MOUSE_TARGET}
             getPixelPositionOffset={(width, height) => ({ x: -width / 2, y: -height / 2 })}
           >
-            <View style={{ transform: [{ rotate: `${snappedDriver.heading}deg` }] }}>
+            <View style={{ transform: [{ rotate: `${animatedDriver.heading ?? 0}deg` }] }}>
               <CarMarker variant={driverVehicleVariant} size={DEFAULT_VEHICLE_MARKER_SIZE} />
             </View>
           </OverlayView>

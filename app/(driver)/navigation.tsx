@@ -1,13 +1,26 @@
-import { CompassButton } from '@/components/map';
-import { NavigationMap } from '@/components/navigation';
+import {
+  NavigationArrivalTime,
+  NavigationCompass,
+  NavigationControls,
+  NavigationLaneGuidance,
+  NavigationMap,
+  NavigationRoadName,
+  NavigationSpeedWidget,
+  NavigationTurnBanner,
+  NavigationVoiceToggle,
+} from '@/components/navigation';
 import { Button, Card, RideActionSlider } from '@/components/ui';
 import { useDriverTelemetryPing } from '@/hooks';
-import { useTurnPreview } from '@/hooks/useTurnPreview';
 import { calculateDistanceKm, calculateDistanceMeters, formatManeuverDistance } from '@/lib/distance';
-import { type DirectionStep } from '@/lib/google/mapsApi';
-import { getManeuverIconName } from '@/lib/maneuverIcon';
+import { setChrome } from '@/navigation/NavigationEngine/CameraController';
 import * as GPSManager from '@/navigation/NavigationEngine/GPSManager';
 import { useNavigation } from '@/navigation/NavigationEngine/hooks/useNavigation';
+import {
+    useActiveRoute,
+    useDriverLocation,
+    useHeading,
+    useNavigationEnabled,
+} from '@/navigation/NavigationEngine/NavigationHooks';
 import { fetchRoute } from '@/navigation/NavigationEngine/RouteEngine';
 import { safeTransition } from '@/navigation/NavigationEngine/safeTransition';
 import { useNavigationStore } from '@/navigation/NavigationEngine/NavigationStore';
@@ -15,7 +28,7 @@ import { useDriverStore } from '@/state';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useState } from 'react';
-import { Alert, Animated, Linking, Pressable, Text, View } from 'react-native';
+import { Alert, Linking, Pressable, Text, View, type LayoutChangeEvent } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 /**
@@ -31,21 +44,21 @@ export default function DriverNavigationScreen() {
         beginTrip,
         startTripRetry,
         waitingStartTime,
-        currentLocation,
         updateLocation,
     } = useDriverStore();
     const navigation = useNavigation();
 
-    const [driverLocation, setDriverLocation] = useState<{ latitude: number; longitude: number } | null>(
-        currentLocation
-    );
-    const [driverHeading, setDriverHeading] = useState<number>(0);
-    const [routeCoordinates, setRouteCoordinates] = useState<Array<{ latitude: number; longitude: number }>>([]);
-    const [routeDistance, setRouteDistance] = useState<string | null>(null);
-    const [routeSteps, setRouteSteps] = useState<DirectionStep[]>([]);
-    const [activeStepIndex, setActiveStepIndex] = useState(0);
-    const [distanceToManeuverMeters, setDistanceToManeuverMeters] = useState<number | null>(null);
-    const [isNavigating, setIsNavigating] = useState(false);
+    // Engine-owned — read from NavigationStore, not mirrored into local
+    // state (Phase 7R.4: this screen no longer keeps its own copy of
+    // anything NavigationProvider/calculateRoute already publish to the
+    // store; see NavigationEngine/Architecture.md's Rollout plan step 6).
+    const driverLocation = useDriverLocation();
+    const heading = useHeading();
+    const route = useActiveRoute();
+    const navigationEnabled = useNavigationEnabled();
+    const routeCoordinates = route?.path ?? [];
+    const routeDistanceText = route ? (route.distanceText ?? formatManeuverDistance(route.distanceMeters)) : null;
+
     const [isCalculating, setIsCalculating] = useState(false);
     const [routeError, setRouteError] = useState(false);
     const [elapsedWaitingTime, setElapsedWaitingTime] = useState(0);
@@ -54,49 +67,35 @@ export default function DriverNavigationScreen() {
     const [isStartingTrip, setIsStartingTrip] = useState(false);
     const [startTripAttempt, setStartTripAttempt] = useState(0);
 
-    useDriverTelemetryPing(currentTrip?.id, driverLocation, driverHeading);
+    useDriverTelemetryPing(currentTrip?.id, driverLocation, heading ?? 0);
 
-    // Track driver location (high accuracy, 1–2s interval). GPS acquisition
-    // goes entirely through GPSManager — the only file allowed to create a
-    // location subscription (src/navigation/NavigationEngine/GPSManager.ts).
+    // GPS acquisition lifecycle only — goes entirely through GPSManager, the
+    // only file allowed to create a location subscription
+    // (src/navigation/NavigationEngine/GPSManager.ts). This screen no longer
+    // mirrors fixes into local state (Phase 7R.4): NavigationProvider
+    // (mounted once at the app root) already has its own GPSManager.onFix
+    // listener that keeps NavigationStore.driverLocation/heading live for
+    // every consumer, this screen included, via the selectors above.
     useEffect(() => {
-        let cancelled = false;
-        const unsubscribeFix = GPSManager.onFix((fix) => {
-            setDriverLocation(fix.coordinate);
-            updateLocation(fix.coordinate.latitude, fix.coordinate.longitude);
-            // Falls back to the existing heading state (initially 0) when
-            // GPS can't derive one, e.g. indoors — never crashes.
-            if (fix.heading !== undefined) {
-                setDriverHeading(fix.heading);
-            }
+        GPSManager.acquire('foreground', 'driverBestNavigation').catch(() => {
+            // Non-critical — location tracking will retry on next mount.
         });
 
-        async function startTracking() {
-            try {
-                await GPSManager.acquire('foreground', 'driverBestNavigation');
-                if (cancelled) return;
-
-                const existingFix = GPSManager.getLastFix();
-                if (existingFix) {
-                    setDriverLocation(existingFix.coordinate);
-                    updateLocation(existingFix.coordinate.latitude, existingFix.coordinate.longitude);
-                    if (existingFix.heading !== undefined) {
-                        setDriverHeading(existingFix.heading);
-                    }
-                }
-            } catch {
-                // Non-critical — location tracking will retry on next mount.
-            }
-        }
-
-        startTracking();
-
         return () => {
-            cancelled = true;
-            unsubscribeFix();
             GPSManager.release();
         };
     }, []);
+
+    // Bridges the engine's live driverLocation into driverStore's persisted
+    // position (hex9/nearbyHexes/incomingRequests recompute on every call) —
+    // NavigationStore intentionally isn't written back to driverStore on its
+    // own (Architecture.md's "Relationship to existing stores"), so this is
+    // the one place that still does, same as the old onFix listener did.
+    useEffect(() => {
+        if (driverLocation) {
+            updateLocation(driverLocation.latitude, driverLocation.longitude);
+        }
+    }, [driverLocation, updateLocation]);
 
     // Phase 6A (Camera Runtime Activation): this screen is the first
     // NavigationMap host, and CameraController's initial cameraState
@@ -131,33 +130,17 @@ export default function DriverNavigationScreen() {
         try {
             // Routing goes entirely through RouteEngine — the only file allowed
             // to fetch/cache Directions (src/navigation/NavigationEngine/RouteEngine.ts).
-            const route = await fetchRoute(driverLocation, currentTrip.pickup);
+            const fetchedRoute = await fetchRoute(driverLocation, currentTrip.pickup);
 
-            if (!route) {
+            if (!fetchedRoute) {
                 setRouteError(true);
                 return;
             }
 
-            // Publishes the fetched pickup route into NavigationStore alongside
-            // this screen's own local state (Phase 5D) — this screen's UI still
-            // reads its own state below, unchanged.
-            useNavigationStore.getState().setRoute(route);
-
-            setRouteCoordinates(route.path);
-            setRouteDistance(route.distanceText ?? formatManeuverDistance(route.distanceMeters));
-            // Adapted to the shape this screen already expects — RouteEngine's
-            // own RouteStep carries the same data as flat numeric fields instead
-            // of Google's {text,value} pairs.
-            setRouteSteps(route.steps.map((step): DirectionStep => ({
-                instruction: step.instruction,
-                distance: { text: formatManeuverDistance(step.distanceMeters), value: step.distanceMeters },
-                duration: { text: `${Math.round(step.durationSeconds / 60)} min`, value: step.durationSeconds },
-                startLocation: step.startLocation,
-                endLocation: step.endLocation,
-                maneuver: step.maneuver,
-                polyline: '', // unused by <Map routeSteps> (only maneuver/start/endLocation are read)
-            })));
-            setActiveStepIndex(0);
+            // NavigationStore is the sole owner of route data (Phase 7R.4) —
+            // this screen renders routeCoordinates/routeDistanceText derived
+            // from useActiveRoute() above, not a local copy.
+            useNavigationStore.getState().setRoute(fetchedRoute);
             setRouteError(false);
         } catch (error) {
             console.error('Error calculating route:', error);
@@ -186,9 +169,11 @@ export default function DriverNavigationScreen() {
         // that can (re)reach DRIVER_TO_PICKUP.
         safeTransition(() => navigation.driverToPickup(driverLocation ?? undefined));
 
-        // Local UI state only (turn-by-turn banner, slider vs. button) —
-        // camera behaviour no longer depends on this flag (Phase 6A).
-        setIsNavigating(true);
+        // Engine-owned (Phase 7R.4): turn-by-turn banner / slider-vs-button
+        // switch now reads NavigationStore.navigationEnabled instead of a
+        // screen-local flag — camera behaviour still doesn't depend on it
+        // (Phase 6A).
+        navigation.setNavigationEnabled(true);
     };
 
     const handleArrived = async () => {
@@ -230,6 +215,24 @@ export default function DriverNavigationScreen() {
         Linking.openSettings().catch(() => {});
     };
 
+    // Phase 7B (Professional AutoFit): this screen owns its own bespoke turn
+    // banner slot and pickup/arrival card (not the generic NavigationBottomCard),
+    // so it's the one place that actually knows their real rendered heights —
+    // reports them into CameraController's chrome model the same way
+    // NavigationMap already reports safe-area insets (Phase 7), via the
+    // engine's existing setChrome() setter (AutoFitEngine.mergeChromeIntoPadding
+    // consumes it — no new fitting math). Currently inert on this screen (its
+    // reachable modes, DRIVER_TO_PICKUP/ARRIVED_PICKUP, are both
+    // autoFit:false — see CAMERA_PROFILES), wired for correctness so a future
+    // autoFit-true moment on this screen frames correctly on the first tick
+    // instead of defaulting to zero padding.
+    const handleTurnBannerLayout = (event: LayoutChangeEvent) => {
+        setChrome({ navigationBannerHeight: event.nativeEvent.layout.height });
+    };
+    const handleBottomCardLayout = (event: LayoutChangeEvent) => {
+        setChrome({ bottomSheetHeight: event.nativeEvent.layout.height });
+    };
+
     const distance = driverLocation && currentTrip
         ? calculateDistanceKm(driverLocation.latitude, driverLocation.longitude, currentTrip.pickup.latitude, currentTrip.pickup.longitude).toFixed(1)
         : '...';
@@ -244,46 +247,6 @@ export default function DriverNavigationScreen() {
         );
         return meters < 50;
     }, [driverLocation?.latitude, driverLocation?.longitude, currentTrip?.pickup.latitude, currentTrip?.pickup.longitude]);
-
-    const currentStep = routeSteps[activeStepIndex];
-    const nextTurnDistance = distanceToManeuverMeters != null ? formatManeuverDistance(distanceToManeuverMeters) : '...';
-    const stripHtml = (value: string) => value.replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim();
-    const currentRoad = currentStep?.instruction ? stripHtml(currentStep.instruction) : '...';
-    const { pulseScale: turnPulseScale, color: turnDistanceColorValue } = useTurnPreview(distanceToManeuverMeters);
-    const nextManeuverIcon = getManeuverIconName(currentStep?.maneuver);
-
-    // Camera is now owned entirely by CameraController (Phase 6A) — this
-    // screen no longer holds a map ref or drives animateCamera itself (see
-    // AGENTS.md "Camera Rules" / Bible "Core Principles"). Compass tap
-    // requests the engine's existing FOLLOW_DRIVER intent instead of
-    // manipulating the map directly.
-    const handleCompassPress = () => {
-        navigation.recenter();
-    };
-
-    // Advance to next step when close to current step end — also tracks live
-    // distance to the upcoming maneuver for the turn preview pulse/color escalation.
-    useEffect(() => {
-        if (!driverLocation || routeSteps.length === 0) {
-            setDistanceToManeuverMeters(null);
-            return;
-        }
-        const step = routeSteps[activeStepIndex];
-        if (!step) {
-            setDistanceToManeuverMeters(null);
-            return;
-        }
-        const meters = calculateDistanceMeters(
-            driverLocation.latitude,
-            driverLocation.longitude,
-            step.endLocation.latitude,
-            step.endLocation.longitude
-        );
-        setDistanceToManeuverMeters(meters);
-        if (meters < 25 && activeStepIndex < routeSteps.length - 1) {
-            setActiveStepIndex((idx) => Math.min(idx + 1, routeSteps.length - 1));
-        }
-    }, [driverLocation?.latitude, driverLocation?.longitude, routeSteps, activeStepIndex]);
 
     // Waiting Timer
     useEffect(() => {
@@ -332,38 +295,50 @@ export default function DriverNavigationScreen() {
 
 
             <SafeAreaView className="flex-1" edges={['top', 'bottom']} pointerEvents="box-none">
-                {/* Turn-by-turn top HUD */}
-                {isNavigating && (
-                    <View className="px-5 pt-2" pointerEvents="box-none">
-                        <View className="bg-white/95 rounded-2xl px-4 py-3 shadow-card border border-white/20 flex-row items-center justify-between">
-                            <View className="flex-row items-center flex-1 pr-3">
-                                <Animated.View
-                                    className="w-8 h-8 rounded-full bg-primary/10 items-center justify-center mr-3"
-                                    style={{ transform: [{ scale: turnPulseScale }] }}
-                                >
-                                    <Ionicons name={nextManeuverIcon} size={18} color="#26344F" />
-                                </Animated.View>
-                                <View className="flex-1">
-                                    <Text className="text-secondary text-[10px] mb-1">NEXT</Text>
-                                    <Text className="text-primary font-bold" numberOfLines={1}>
-                                        {currentRoad}
-                                    </Text>
-                                </View>
-                            </View>
-                            <View className="items-end">
-                                <Text className="text-secondary text-[10px]">IN</Text>
-                                <Text className="font-bold text-lg" style={{ color: turnDistanceColorValue }}>
-                                    {nextTurnDistance}
-                                </Text>
+                {/* Turn-by-turn top HUD — store-driven (Phase 7): reads
+                    NavigationStore's currentStep/currentInstruction, kept
+                    live by RouteProgressTracker on every GPS tick. Always
+                    mounted (Phase 7B) so onLayout reliably reports 0 when
+                    empty instead of going stale when navigationEnabled flips off —
+                    same visible result as before (nothing renders while not
+                    navigating), just measurable. Lane guidance + road name
+                    (Phase 7D) share this slot, below the turn banner. */}
+                <View className="px-5 pt-2" pointerEvents="box-none" onLayout={handleTurnBannerLayout}>
+                    {navigationEnabled && (
+                        <View className="gap-2" pointerEvents="box-none">
+                            <NavigationTurnBanner />
+                            <View className="flex-row gap-2" pointerEvents="box-none">
+                                <NavigationLaneGuidance />
+                                <NavigationRoadName />
                             </View>
                         </View>
+                    )}
+                </View>
+
+                {/* Arrival time (Phase 7D) — wall-clock complement to the
+                    distance/price shown lower in the pickup card; mirrors
+                    the turn banner's top row on the opposite side. */}
+                {navigationEnabled && (
+                    <View className="absolute top-2 right-5" pointerEvents="auto">
+                        <NavigationArrivalTime />
                     </View>
                 )}
 
-                {/* Compass */}
-                {isNavigating && (
-                    <View className="absolute top-24 right-5" pointerEvents="auto">
-                        <CompassButton heading={driverHeading} onPress={handleCompassPress} />
+                {/* Compass + Recenter — Phase 7: engine components, replacing
+                    the screen-local CompassButton. Recenter only renders once
+                    the driver pans/pinches away from follow. */}
+                {navigationEnabled && (
+                    <View className="absolute top-24 right-5 gap-3" pointerEvents="auto">
+                        <NavigationCompass />
+                        <NavigationControls />
+                    </View>
+                )}
+
+                {/* Speed + voice-guidance toggle */}
+                {navigationEnabled && (
+                    <View className="absolute bottom-40 left-5 gap-3" pointerEvents="auto">
+                        <NavigationSpeedWidget />
+                        <NavigationVoiceToggle />
                     </View>
                 )}
 
@@ -371,7 +346,11 @@ export default function DriverNavigationScreen() {
 
                 {/* Bottom content */}
                 <View className="flex-1 justify-end px-5 pb-4" pointerEvents="box-none">
-                    <View pointerEvents="auto">
+                    {/* onLayout reports whichever card (or neither) is
+                        currently rendered below — this View is unconditional,
+                        so it collapses to 0 height and re-reports correctly
+                        when tripStatus changes (Phase 7B chrome wiring). */}
+                    <View pointerEvents="auto" onLayout={handleBottomCardLayout}>
                         {/* Navigating to Pickup */}
                         {tripStatus === 'navigating_to_pickup' && (
                             <Card variant="default" className="mb-4 shadow-xl">
@@ -424,7 +403,7 @@ export default function DriverNavigationScreen() {
                                     <View className="flex-row items-center">
                                         <Ionicons name="navigate" size={20} color="#7B8387" />
                                         <Text className="text-secondary ml-2">
-                                            {routeDistance || `${distance} km away`}
+                                            {routeDistanceText || `${distance} km away`}
                                         </Text>
                                     </View>
                                     {/* Price moved to here */}
@@ -437,7 +416,7 @@ export default function DriverNavigationScreen() {
 
                                 {/* Action Buttons */}
                                 <View className="gap-3">
-                                    {!isNavigating ? (
+                                    {!navigationEnabled ? (
                                         <Button
                                             variant={routeError ? "accent" : "primary"}
                                             leftIcon={routeError ? "refresh" : "navigate"}

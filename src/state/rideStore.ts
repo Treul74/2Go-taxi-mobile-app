@@ -1,5 +1,6 @@
 import { getHex9 } from '@/core/spatialEngine';
 import { vehicleIcons } from '@/features/passenger/components/VehicleCard';
+import { getActiveFareSurcharge } from '@/lib/fareSurcharge';
 import { getDistanceMatrix } from '@/lib/google/mapsApi';
 import { sendPushNotification } from '@/lib/notifications';
 import { fetchNearbyDriverPushTokens } from '@/services/driverOrders';
@@ -146,6 +147,8 @@ interface VehicleRateConfig {
   perMinuteWaiting: number;
   minFare: number;
   vehicleMultiplier: number;
+  nightRateMultiplier: number;
+  peakMultiplier: number;
 }
 
 export const useRideStore = create<RideState>((set, get) => ({
@@ -285,6 +288,11 @@ export const useRideStore = create<RideState>((set, get) => ({
       const perMinuteWaiting = Number(row.per_minute_waiting);
       const minFare = Number(row.min_fare);
       const vehicleMultiplier = Number(row.vehicle_multiplier);
+      // Falls back to 1.0 (no-op) if null or 0 in the DB -- same convention
+      // as vehicleMultiplier, but explicit here since an admin leaving these
+      // unset should never zero out a fare.
+      const nightRateMultiplier = Number(row.night_rate_multiplier) || 1.0;
+      const peakMultiplier = Number(row.peak_multiplier) || 1.0;
 
       vehicleRates[row.vehicle_type] = {
         baseFare,
@@ -293,6 +301,8 @@ export const useRideStore = create<RideState>((set, get) => ({
         perMinuteWaiting,
         minFare,
         vehicleMultiplier,
+        nightRateMultiplier,
+        peakMultiplier,
       };
 
       vehicleOptions.push({
@@ -334,14 +344,24 @@ export const useRideStore = create<RideState>((set, get) => ({
       const distanceKm = result.distance.value / 1000;
       const durationMinutes = result.duration.value / 60;
       const eta = Math.max(1, Math.round(durationMinutes));
+      // Mirrors the server's night/peak window check (calculate_fare_breakdown)
+      // so the preview matches what will actually be charged at booking time.
+      const surchargeType = getActiveFareSurcharge();
 
       set((s) => ({
         vehicleOptions: s.vehicleOptions.map((vehicle) => {
           const rate = vehicleRates[vehicle.id];
           if (!rate) return { ...vehicle, eta };
 
+          const surchargeMultiplier =
+            surchargeType === 'night'
+              ? rate.nightRateMultiplier
+              : surchargeType === 'peak'
+                ? rate.peakMultiplier
+                : 1.0;
+
           const subtotal = rate.baseFare + distanceKm * rate.perKm + durationMinutes * rate.perMinute;
-          const total = rate.vehicleMultiplier * Math.max(subtotal, rate.minFare);
+          const total = rate.vehicleMultiplier * surchargeMultiplier * Math.max(subtotal, rate.minFare);
 
           return {
             ...vehicle,

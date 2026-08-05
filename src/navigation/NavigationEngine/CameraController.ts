@@ -46,6 +46,7 @@
 import { normalizeHeading } from '@/lib/mapAnimation';
 import { DEFAULT_CHROME, fitCompleted, fitPreview, type AutoFitChrome } from './AutoFitEngine';
 import {
+  applyCameraDamping,
   ARRIVAL_DURATION,
   calculateAnimationDuration,
   calculateForwardOffset,
@@ -53,8 +54,11 @@ import {
   calculateLookAheadPoint,
   calculateMovementThreshold,
   calculateRotationThreshold,
+  interpolateBearing,
+  lerp,
   MIN_PITCH,
   MIN_ZOOM,
+  RECENTER_DURATION,
   shortestBearing,
   shouldAnimate,
   shouldRotate,
@@ -181,6 +185,21 @@ const FALLBACK_VIEWPORT = { width: 375, height: 812 };
 
 /** Below this zoom-level change, a routine follow tick isn't considered a meaningful zoom change (avoids re-animating on floating-point-scale speed noise). */
 const ZOOM_CHANGE_EPSILON = 0.05;
+
+/**
+ * Exponential damping rate (see `CameraAnimation.applyCameraDamping`) applied
+ * to routine in-mode follow ticks only — never to a mode/cameraState
+ * transition or the first-ever pose, both of which deliberately move to the
+ * raw target in full (see `recompute`'s branches). At a ~1s GPS interval
+ * (`driverBestNavigation`'s cadence) this reaches ~95% of the way to a fresh
+ * target per tick (1 - e^-3 ≈ 0.95) — most of the raw movement/look-ahead
+ * prediction still lands, but a single noisy fix is blended rather than
+ * applied outright, on top of (not instead of) the existing movement/
+ * rotation-threshold gating below. Tuned as a starting value; the Bible
+ * specifies "no shaking," not an exact damping constant, so this should be
+ * verified/adjusted on a real device (none available in this environment).
+ */
+const CAMERA_DAMPING_FACTOR = 3;
 
 // ---------------------------------------------------------------------------
 // Map handle — a minimal structural type for what this controller needs
@@ -335,9 +354,20 @@ function snapshotsEqual(a: RelevantSnapshot | null, b: RelevantSnapshot | null):
  * from "did the camera actually move." `__DEV__`-gated, matching the
  * precedent set by `NavigationProvider`'s `logTransitionsInDev()` (Phase
  * 5.5B) — instrumentation only, no behaviour change.
+ *
+ * Phase 7: throttled to at most once per 500ms — GPS ticks as fast as
+ * 1/sec (driverBestNavigation) made this a steady Metro console spam
+ * source with no verification value beyond the first line in any given
+ * window; still well under GPS's own cadence, so no update pattern is lost.
  */
+const RUNTIME_LOG_THROTTLE_MS = 500;
+let lastRuntimeLogAtMs = 0;
+
 function logRuntimeUpdateInDev(state: NavigationState): void {
   if (!__DEV__) return;
+  const now = Date.now();
+  if (now - lastRuntimeLogAtMs < RUNTIME_LOG_THROTTLE_MS) return;
+  lastRuntimeLogAtMs = now;
   console.log('[CameraController] runtime update', {
     timestampMs: Date.now(),
     mode: state.mode,
@@ -453,6 +483,31 @@ function computeTargetPose(state: NavigationState): CameraAnimationState | null 
 // Gating + apply
 // ---------------------------------------------------------------------------
 
+/**
+ * Blends `from` toward `target` using `CameraAnimation.applyCameraDamping`
+ * (position + zoom + pitch as plain per-axis damping, bearing via
+ * `interpolateBearing` so it still takes the shortest arc) — the "predict ->
+ * camera -> animation" pipeline's smoothing stage, layered on top of (not
+ * instead of) the movement/rotation-threshold gating that already decides
+ * *whether* to react at all. `applyCameraDamping(0, 1, factor, dt)` derives
+ * a single 0-1 blend weight for this tick (frame-time independent), reused
+ * for every axis rather than re-deriving the exponential formula per field.
+ */
+function dampPose(from: CameraAnimationState, target: CameraAnimationState, dampingFactor: number, deltaSeconds: number): CameraAnimationState {
+  const t = applyCameraDamping(0, 1, dampingFactor, deltaSeconds);
+  return {
+    center: {
+      latitude: lerp(from.center.latitude, target.center.latitude, t),
+      longitude: lerp(from.center.longitude, target.center.longitude, t),
+    },
+    bearing: interpolateBearing(from.bearing, target.bearing, t),
+    zoom: lerp(from.zoom, target.zoom, t),
+    pitch: lerp(from.pitch, target.pitch, t),
+    padding: target.padding,
+    timestampMs: Date.now(),
+  };
+}
+
 function recompute(state: NavigationState): void {
   if (!mapHandle) return;
 
@@ -461,22 +516,36 @@ function recompute(state: NavigationState): void {
 
   const isFirstApplication = lastAppliedPose === null;
   const transitioned = lastAppliedMode !== state.mode || lastAppliedCameraState !== state.cameraState;
+  // A recenter is a specific transition sub-case (mode unchanged, camera
+  // intent returning from FREE_EXPLORE to FOLLOW_DRIVER — see
+  // NavigationStore.recenter()) that the Bible calls out as its own named
+  // behaviour ("the camera smoothly returns to FOLLOW_DRIVER"), distinct
+  // from a full mode change — it should feel snappier than e.g. entering
+  // DRIVER_TO_PICKUP fresh, not identical to it.
+  const isRecenter =
+    transitioned && lastAppliedMode === state.mode && lastAppliedCameraState === 'FREE_EXPLORE' && state.cameraState === 'FOLLOW_DRIVER';
 
+  let appliedPose: CameraAnimationState;
   let shouldApply: boolean;
   let durationMs: number;
 
   if (isFirstApplication) {
     // No prior pose to animate from — snap directly to the target rather
     // than tweening from an arbitrary/undefined starting camera.
+    appliedPose = target;
     shouldApply = true;
     durationMs = 0;
   } else if (transitioned) {
     // Entering a new mode or camera intent deserves a deliberate, eased
     // transition (Bible/Architecture.md: DRIVER_TO_PICKUP's camera "eases
     // in smoothly on entry rather than jumping") — not the snappier
-    // routine-follow duration used for in-mode GPS ticks below.
+    // routine-follow duration used for in-mode GPS ticks below, and moving
+    // to the raw target rather than a damped blend of the old mode's stale
+    // pose (damping is for steady-state follow noise, not a deliberate
+    // intent change).
+    appliedPose = target;
     shouldApply = true;
-    durationMs = ARRIVAL_DURATION;
+    durationMs = isRecenter ? RECENTER_DURATION : ARRIVAL_DURATION;
   } else {
     const from = lastAppliedPose as CameraAnimationState;
     const distanceMovedMeters = distanceMeters(from.center, target.center);
@@ -491,6 +560,12 @@ function recompute(state: NavigationState): void {
       shouldRotate(headingDelta, rotationThreshold) ||
       zoomDelta > ZOOM_CHANGE_EPSILON;
     durationMs = calculateAnimationDuration(distanceMovedMeters, state.speed ?? undefined);
+
+    // Gating above still runs against the raw target (unchanged) — only the
+    // pose actually sent to the map is damped, so a single noisy fix that
+    // does clear the threshold arrives smoothed rather than as a full jump.
+    const deltaSeconds = Math.max(0, (target.timestampMs - from.timestampMs) / 1000);
+    appliedPose = dampPose(from, target, CAMERA_DAMPING_FACTOR, deltaSeconds);
   }
 
   if (!shouldApply) return;
@@ -500,11 +575,18 @@ function recompute(state: NavigationState): void {
   // padding already did its job inside `autoFitPose`'s zoom calculation, so
   // by this point it's fully baked into `target.zoom`.
   mapHandle.animateCamera(
-    { center: target.center, heading: target.bearing, pitch: target.pitch, zoom: target.zoom },
+    { center: appliedPose.center, heading: appliedPose.bearing, pitch: appliedPose.pitch, zoom: appliedPose.zoom },
     { duration: durationMs }
   );
 
-  lastAppliedPose = target;
+  // Publishes what the camera is now doing back into the store —
+  // NavigationState.bearing/zoom/pitch existed but nothing wrote them before
+  // Phase 7, so NavigationCompass's needle (reads `bearing`) was permanently
+  // frozen at 0°. Read-only from every other consumer's perspective: this is
+  // the one place camera pose becomes store data.
+  useNavigationStore.setState({ bearing: appliedPose.bearing, zoom: appliedPose.zoom, pitch: appliedPose.pitch });
+
+  lastAppliedPose = appliedPose;
   lastAppliedMode = state.mode;
   lastAppliedCameraState = state.cameraState;
 }

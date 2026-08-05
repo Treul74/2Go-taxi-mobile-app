@@ -44,6 +44,7 @@ export function useNavigation(): NavigationActions {
       fitRoute: s.fitRoute,
       overview: s.overview,
       enterFreeExplore: s.enterFreeExplore,
+      setNavigationEnabled: s.setNavigationEnabled,
     }))
   );
 }
