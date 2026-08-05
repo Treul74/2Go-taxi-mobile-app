@@ -4,11 +4,14 @@ import { formatManeuverDistance } from '@/lib/distance';
 import {
   attachMap,
   detachMap,
+  setChrome,
   setViewportSize,
   type CameraControllerMapHandle,
 } from '@/navigation/NavigationEngine/CameraController';
+import { useNavigation } from '@/navigation/NavigationEngine/hooks/useNavigation';
 import {
   useActiveRoute,
+  useCameraState,
   useDriverLocation,
   useHeading,
   useNavigationMode,
@@ -16,8 +19,15 @@ import {
 } from '@/navigation/NavigationEngine/NavigationHooks';
 import { NavigationMode } from '@/navigation/NavigationEngine/NavigationModes';
 import type { LatLng } from '@/navigation/NavigationEngine/types';
-import React, { useEffect, useMemo, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import { StyleSheet, View, type LayoutChangeEvent } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+/** Bible: "a floating 'Recenter' button appears... after inactivity (for
+ * example, 5-10 seconds)... the camera smoothly returns to FOLLOW_DRIVER" —
+ * a starting value within that window, not a measured one (no device
+ * available to tune it in this pass). */
+const FREE_EXPLORE_AUTO_RECENTER_MS = 7000;
 
 export interface NavigationMapProps {
   mapType?: MapProps['mapType'];
@@ -62,6 +72,9 @@ export function NavigationMap({ mapType, children }: NavigationMapProps) {
   const driverLocation = useDriverLocation();
   const heading = useHeading();
   const route = useActiveRoute();
+  const navigation = useNavigation();
+  const cameraState = useCameraState();
+  const safeAreaInsets = useSafeAreaInsets();
 
   useEffect(() => {
     attachMap({
@@ -77,10 +90,58 @@ export function NavigationMap({ mapType, children }: NavigationMapProps) {
     return () => detachMap();
   }, []);
 
+  // Reports real safe-area insets so AutoFitEngine's fit-style shots
+  // (PREVIEW/MATCHING/TRIP_COMPLETED/FIT_ROUTE/OVERVIEW) stop assuming a
+  // flat guess. `bottomSheetHeight`/`navigationBannerHeight` are left at
+  // their defaults this pass — no mode this component's current host
+  // screens reach reads chrome-aware padding for those yet (see
+  // Architecture.md/audit notes), so measuring them would have no visible
+  // effect and isn't worth the extra onLayout plumbing until one does.
+  useEffect(() => {
+    setChrome({ safeArea: safeAreaInsets });
+  }, [safeAreaInsets.top, safeAreaInsets.right, safeAreaInsets.bottom, safeAreaInsets.left]);
+
   const handleLayout = (event: LayoutChangeEvent) => {
     const { width, height } = event.nativeEvent.layout;
     setViewportSize({ width, height });
   };
+
+  // Gesture-to-free-explore + automatic return to follow (Bible's closing
+  // "Camera State Manager" section): a real user pan/pinch drops the camera
+  // into FREE_EXPLORE (CameraController stands down — see its
+  // computeTargetPose); after inactivity it smoothly resumes following.
+  // Keyed strictly to onPanDrag (fires only on genuine touch, never from
+  // CameraController's own animateCamera calls) rather than any store
+  // subscription — GPS ticks update the store ~1/sec regardless of user
+  // activity, so resetting this timer from a store change would mean it
+  // never fires while the driver is simply moving.
+  const freeExploreTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleUserGesture = useCallback(() => {
+    navigation.enterFreeExplore();
+    if (freeExploreTimeoutRef.current) clearTimeout(freeExploreTimeoutRef.current);
+    freeExploreTimeoutRef.current = setTimeout(() => {
+      navigation.recenter();
+      freeExploreTimeoutRef.current = null;
+    }, FREE_EXPLORE_AUTO_RECENTER_MS);
+  }, [navigation]);
+
+  // Clears the pending auto-recenter if cameraState leaves FREE_EXPLORE any
+  // other way (a manual Recenter tap, a mode transition, unmount) — avoids
+  // a stale timer firing a redundant recenter() after the user already left
+  // free-explore some other way.
+  useEffect(() => {
+    if (cameraState !== 'FREE_EXPLORE' && freeExploreTimeoutRef.current) {
+      clearTimeout(freeExploreTimeoutRef.current);
+      freeExploreTimeoutRef.current = null;
+    }
+  }, [cameraState]);
+
+  useEffect(() => {
+    return () => {
+      if (freeExploreTimeoutRef.current) clearTimeout(freeExploreTimeoutRef.current);
+    };
+  }, []);
 
   const navigationArrowMode =
     mode === NavigationMode.DRIVER_TO_PICKUP || mode === NavigationMode.TRIP_IN_PROGRESS;
@@ -112,6 +173,7 @@ export function NavigationMap({ mapType, children }: NavigationMapProps) {
         mapType={mapType}
         autoFollowDriver={false}
         disableInternalCamera
+        onPanDrag={handleUserGesture}
         // `Map`'s own zoom +/- buttons drive the camera directly via its
         // ref, bypassing CameraController — never requested here (Phase 6B:
         // "CameraController must be the ONLY camera owner"). CameraController

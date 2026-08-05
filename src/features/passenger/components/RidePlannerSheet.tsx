@@ -1,8 +1,7 @@
 import { USER_LOCATION_COLOR } from '@/components/map/markers';
-import { Button, IconButton, Input, Pill } from '@/components/ui';
+import { Button, IconButton, Input } from '@/components/ui';
 import { useCurrentLocation } from '@/hooks/useCurrentLocation';
 import { formatDisplayAddress } from '@/lib';
-import { getActiveFareSurcharge } from '@/lib/fareSurcharge';
 import { fetchRoute } from '@/navigation/NavigationEngine/RouteEngine';
 import { useRideStore, useUserStore } from '@/state';
 import type { Location, PaymentMethod, SavedAddress } from '@/types';
@@ -56,20 +55,6 @@ export function RidePlannerSheet({ onRequestRide, isMapDragging = false }: RideP
   // Input state
   const [destinationQuery, setDestinationQuery] = useState('');
   const [pickupQuery, setPickupQuery] = useState('');
-
-  // Night/peak surcharge badge — mirrors the server's time windows (see
-  // fareSurcharge.ts) purely for display; refreshed every minute in case the
-  // sheet is left open across a window boundary. The actual charged fare
-  // always comes from the server's own calculate_fare_breakdown() call at
-  // booking/completion time, not from this client-side check.
-  const [activeSurcharge, setActiveSurcharge] = useState(() => getActiveFareSurcharge());
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setActiveSurcharge(getActiveFareSurcharge());
-    }, 60_000);
-    return () => clearInterval(interval);
-  }, []);
 
   // Animation for card minimization
   const cardHeightAnim = useRef(new Animated.Value(1)).current;
@@ -398,19 +383,6 @@ export function RidePlannerSheet({ onRequestRide, isMapDragging = false }: RideP
             onSelectVehicle={(id) => setVehicle(id)}
           />
         </View>
-
-        {/* Surcharge badge — informational, mirrors the server's own
-            night/peak windows for the fare estimate shown above */}
-        {activeSurcharge && (
-          <View className="mt-3 items-start">
-            <Pill
-              label={activeSurcharge === 'night' ? 'Night rate applies' : 'Peak hour pricing'}
-              icon={activeSurcharge === 'night' ? 'moon' : 'trending-up'}
-              variant="warning"
-              size="sm"
-            />
-          </View>
-        )}
 
         {/* Book Button Row */}
         <View className="mt-4 flex-row items-center gap-3">

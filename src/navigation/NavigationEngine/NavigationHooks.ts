@@ -83,6 +83,34 @@ export function useCurrentInstruction(): string | null {
   return useNavigationStore((s) => s.currentInstruction);
 }
 
+/**
+ * The step after `currentStep` (Bible's Route Progress: "Next maneuver" —
+ * distinct from "Current maneuver", which `useCurrentStep` already covers).
+ * Derived from `progress.activeStepIndex + 1` rather than a separate store
+ * field — `RouteData.steps` is already the full ordered list, so this is a
+ * plain index read, not new routing data. `null` before a route/progress
+ * exists, or once there's no further step (the current one is the last).
+ */
+export function useNextStep(): RouteStep | null {
+  return useNavigationStore((s) => {
+    if (!s.route || !s.progress) return null;
+    return s.route.steps[s.progress.activeStepIndex + 1] ?? null;
+  });
+}
+
+/**
+ * The step after that (Bible's Turn-by-Turn Navigation: "Second instruction
+ * (optional)") — one further step of lookahead beyond `useNextStep`, e.g.
+ * for a HUD that previews "then turn left" alongside the upcoming turn.
+ * Same derivation, one index further; `null` under the same conditions.
+ */
+export function useSecondNextStep(): RouteStep | null {
+  return useNavigationStore((s) => {
+    if (!s.route || !s.progress) return null;
+    return s.route.steps[s.progress.activeStepIndex + 2] ?? null;
+  });
+}
+
 export function useEtaSeconds(): number | null {
   return useNavigationStore((s) => s.etaSeconds);
 }
@@ -93,6 +121,17 @@ export function useDistanceMeters(): number | null {
 
 export function useDistanceRemainingMeters(): number | null {
   return useNavigationStore((s) => s.distanceRemainingMeters);
+}
+
+/**
+ * 0-100 whole-number route completion (Bible's Route Progress: "Route
+ * progress percentage") — a convenience read over
+ * `useRouteProgress().fractionComplete` (already computed by
+ * `RouteEngine.computeRouteProgress`), not a new value stored separately.
+ * `null` before any progress has been computed yet.
+ */
+export function useRouteProgressPercent(): number | null {
+  return useNavigationStore((s) => (s.progress ? Math.round(s.progress.fractionComplete * 100) : null));
 }
 
 // --- Camera --------------------------------------------------------------

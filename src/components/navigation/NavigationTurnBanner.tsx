@@ -1,9 +1,9 @@
-import { colors } from '@/constants/theme';
-import { formatManeuverDistance } from '@/lib/distance';
-import { useCurrentInstruction, useCurrentStep } from '@/navigation/NavigationEngine/NavigationHooks';
+import { useTurnPreview } from '@/hooks/useTurnPreview';
+import { calculateDistanceMeters, formatManeuverDistance } from '@/lib/distance';
+import { useCurrentInstruction, useCurrentStep, useDriverLocation } from '@/navigation/NavigationEngine/NavigationHooks';
 import { Ionicons } from '@expo/vector-icons';
-import React from 'react';
-import { Text, View } from 'react-native';
+import React, { useMemo } from 'react';
+import { Animated, Text, View } from 'react-native';
 
 type IconName = keyof typeof Ionicons.glyphMap;
 
@@ -34,30 +34,50 @@ function iconForManeuver(maneuver: string): IconName {
  * card larger than necessary.").
  *
  * Reads `NavigationStore`'s current step directly — renders nothing else.
- * Distance shown is the step's own total distance (`RouteStep.distanceMeters`),
- * not a live countdown to the maneuver: `RouteEngine`'s `RouteProgress`
- * doesn't yet compute distance-remaining-within-the-current-step (only
- * whole-route remaining distance), so a real live countdown isn't available
- * data to show without this component deriving it itself — flagged as a
- * future RouteEngine enhancement rather than computed here.
+ * Distance shown is a live straight-line countdown to the step's own end
+ * location (`RouteStep.endLocation`) computed from the live `driverLocation`
+ * selector, the same math + `useTurnPreview` pulse/color escalation every
+ * driver-facing screen in this codebase already hand-rolled independently
+ * (Phase 7 consolidates it here instead of a 4th copy) — not
+ * `RouteProgress`'s whole-route remaining distance, which wouldn't reset
+ * per step.
  *
  * Renders nothing while there is no active step (e.g. outside turn-by-turn
- * modes), so it's always safe to mount unconditionally.
+ * modes) or no live position yet, so it's always safe to mount
+ * unconditionally.
  */
 export function NavigationTurnBanner() {
   const currentStep = useCurrentStep();
   const currentInstruction = useCurrentInstruction();
+  const driverLocation = useDriverLocation();
+
+  const distanceToManeuverMeters = useMemo(() => {
+    if (!driverLocation || !currentStep) return null;
+    return calculateDistanceMeters(
+      driverLocation.latitude,
+      driverLocation.longitude,
+      currentStep.endLocation.latitude,
+      currentStep.endLocation.longitude
+    );
+  }, [driverLocation?.latitude, driverLocation?.longitude, currentStep]);
+
+  const { pulseScale, color } = useTurnPreview(distanceToManeuverMeters);
 
   if (!currentStep || !currentInstruction) return null;
 
   return (
     <View className="flex-row items-center bg-white rounded-2xl px-4 py-3 shadow-md max-w-[75%]">
-      <View className="w-11 h-11 rounded-full bg-primary items-center justify-center mr-3">
-        <Ionicons name={iconForManeuver(currentStep.maneuver)} size={24} color={colors.white} />
-      </View>
+      <Animated.View
+        className="w-11 h-11 rounded-full bg-primary/10 items-center justify-center mr-3"
+        style={{ transform: [{ scale: pulseScale }] }}
+      >
+        <Ionicons name={iconForManeuver(currentStep.maneuver)} size={24} color="#26344F" />
+      </Animated.View>
       <View className="shrink">
-        <Text className="text-secondary text-xs font-medium">
-          {formatManeuverDistance(currentStep.distanceMeters)}
+        <Text className="text-secondary text-xs font-medium" style={{ color }}>
+          {distanceToManeuverMeters != null
+            ? formatManeuverDistance(distanceToManeuverMeters)
+            : formatManeuverDistance(currentStep.distanceMeters)}
         </Text>
         <Text className="text-primary text-base font-bold" numberOfLines={2}>
           {currentInstruction}

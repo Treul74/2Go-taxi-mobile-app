@@ -13,3 +13,7 @@ export type { NavigationControlsProps } from './NavigationControls';
 export { NavigationArrivalCard } from './NavigationArrivalCard';
 export { NavigationSlideButton } from './NavigationSlideButton';
 export type { NavigationSlideButtonProps } from './NavigationSlideButton';
+export { NavigationVoiceToggle } from './NavigationVoiceToggle';
+export { NavigationArrivalTime } from './NavigationArrivalTime';
+export { NavigationRoadName } from './NavigationRoadName';
+export { NavigationLaneGuidance } from './NavigationLaneGuidance';

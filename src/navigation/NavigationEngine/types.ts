@@ -365,6 +365,9 @@ export interface NavigationActions {
    * source of truth for `cameraState`/`followMode`/`recenterState`.
    */
   enterFreeExplore: () => void;
+
+  /** Sets the master turn-by-turn/camera-follow switch independent of `mode` — see NavigationState.navigationEnabled doc. */
+  setNavigationEnabled: (enabled: boolean) => void;
 }
 
 /**
@@ -382,4 +385,18 @@ export interface NavigationDataActions {
   setGpsStatus: (status: GPSSignalStatus) => void;
   /** Publishes a freshly-fetched route: `route`, and (when non-null) seeds `currentStep`/`currentInstruction` from its first step, `distanceMeters`, and `etaSeconds`. Passing `null` clears all four. */
   setRoute: (route: RouteData | null) => void;
+  /** Publishes `RouteEngine.computeRouteProgress`'s output: `progress`, `distanceRemainingMeters`, `etaSeconds` (from `durationRemainingSeconds`), and — resolved from the current route's steps by `progress.activeStepIndex` — `currentStep`/`currentInstruction`. Called by `RouteProgressTracker` on GPS ticks, not by screens. */
+  setRouteProgress: (progress: RouteProgress) => void;
+  /**
+   * Performance optimization (Phase 7F): applies exactly what `setGpsFix(fix)`
+   * followed by `setRouteProgress(progress)` would, but as a single store
+   * commit instead of two. `NavigationProvider` uses this on every GPS tick
+   * where a route is already active, instead of calling both actions
+   * separately — each separate `set()` call synchronously notifies every
+   * store subscriber (`CameraController`'s the one that matters today), so
+   * two calls per tick means twice the subscriber work for the same final
+   * state. Result is identical either way; only the number of intermediate
+   * store commits differs.
+   */
+  setGpsFixWithProgress: (fix: GPSFix, progress: RouteProgress) => void;
 }
