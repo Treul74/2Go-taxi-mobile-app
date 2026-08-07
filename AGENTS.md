@@ -705,3 +705,167 @@ The Navigation Engine is considered core infrastructure and must never be duplic
 - Protect what already works — never refactor a working file as a side
   effect of an unrelated prompt
 - Keep the smallest useful implementation first
+
+---
+
+# 🔒 Protected Features (Regression Protection)
+
+## Objective
+
+The project has reached a stage where several core systems have been fully
+implemented, tested, and verified.
+
+These systems are now considered **STABLE** and must be protected from
+future regressions.
+
+The purpose of this section is to instruct all future AI agents to preserve
+working functionality while continuing development.
+
+---
+
+## 1. Protected Features
+
+The following verified systems must not be unintentionally modified:
+
+- Complete Passenger Ride Lifecycle
+- Complete Driver Ride Lifecycle
+- Navigation Engine Runtime
+- GPSManager
+- NavigationProvider
+- NavigationStore
+- RouteEngine
+- NavigationMap
+- CameraController
+- AutoFitEngine
+- NavigationHUD
+- MarkerAnimator
+
+These are considered production-stable unless explicitly marked otherwise.
+
+---
+
+## 2. Protected Driver Workflow
+
+The following workflow is verified and must remain unchanged unless
+explicitly requested:
+
+Passenger Request
+↓
+Driver Receives Request
+↓
+Driver Accepts Ride
+↓
+Navigation Engine Initializes
+↓
+Route Loads
+↓
+Polyline Displays
+↓
+AutoFit Executes
+↓
+Start Pickup
+↓
+Arrived
+↓
+Start Trip
+↓
+Trip Navigation
+↓
+Complete Trip
+↓
+Passenger Rating
+↓
+Driver Rating
+
+This workflow is considered LOCKED.
+
+---
+
+## 3. Navigation Engine Ownership
+
+Navigation ownership belongs ONLY to the Navigation Engine.
+
+Screens must never own:
+
+- GPS
+- Route
+- Camera
+- Polyline
+- ETA
+- Distance
+- Navigation State
+- Camera State
+
+Screens may only consume `NavigationStore` through reusable hooks and
+components.
+
+---
+
+## 4. Regression Protection Rules
+
+Before modifying any protected feature, every AI agent must:
+
+- Determine whether the requested change affects a protected system.
+- Explain any regression risk before making changes.
+- Modify the smallest amount of code necessary.
+- Extend existing architecture instead of replacing it.
+- Preserve all existing working behavior.
+
+---
+
+## 5. Stable Before New
+
+If a feature is already working correctly:
+
+- Do NOT redesign it.
+- Do NOT refactor it.
+- Do NOT migrate it.
+- Do NOT replace it.
+- Do NOT optimize it.
+
+Unless the task explicitly requires changes to that feature.
+
+---
+
+## 6. Future Development Rule
+
+Every future implementation must:
+
+1. Read AGENTS.md first.
+2. Identify protected systems that could be affected.
+3. Preserve all protected functionality.
+4. Build only on top of the existing reusable architecture.
+5. Never introduce duplicate ownership or duplicate state.
+6. Report any regression risk before making changes.
+
+---
+
+## 7. Regression Checklist
+
+Before any implementation touching protected systems, confirm:
+
+- Existing feature behavior preserved.
+- No duplicate state introduced.
+- No duplicate GPS ownership.
+- No duplicate camera ownership.
+- No duplicate route ownership.
+- Navigation Engine remains the single source of truth.
+- TypeScript passes.
+- Existing ride lifecycle still works end-to-end.
+- Existing reusable components remain reusable.
+- No regressions introduced.
+
+---
+
+## 8. Architecture Preservation Rule
+
+The project's architecture is now mature.
+
+Future work must extend the existing Navigation Engine rather than
+replacing or bypassing it.
+
+Reusable components must always be preferred over screen-specific
+implementations.
+
+No future prompt should move business logic, navigation logic, camera
+logic, GPS logic, or routing logic back into individual screens.

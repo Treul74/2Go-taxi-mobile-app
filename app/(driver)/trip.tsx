@@ -1,13 +1,19 @@
-import { CompassButton, Map } from '@/components/map';
+import {
+    NavigationArrivalTime,
+    NavigationCompass,
+    NavigationControls,
+    NavigationLaneGuidance,
+    NavigationMap,
+    NavigationRoadName,
+    NavigationSpeedWidget,
+    NavigationTurnBanner,
+} from '@/components/navigation';
 import { RideActionSlider } from '@/components/ui';
 import { useDriverTelemetryPing } from '@/hooks';
-import { useTurnPreview } from '@/hooks/useTurnPreview';
-import { calculateDistanceKm, calculateDistanceMeters, formatManeuverDistance } from '@/lib/distance';
-import { type DirectionStep } from '@/lib/google/mapsApi';
-import { getManeuverIconName } from '@/lib/maneuverIcon';
-import { calculateBearing } from '@/lib/routeSnapping';
+import { calculateDistanceKm } from '@/lib/distance';
 import * as GPSManager from '@/navigation/NavigationEngine/GPSManager';
 import { useNavigation } from '@/navigation/NavigationEngine/hooks/useNavigation';
+import { useDriverLocation, useHeading } from '@/navigation/NavigationEngine/NavigationHooks';
 import { fetchRoute } from '@/navigation/NavigationEngine/RouteEngine';
 import { safeTransition } from '@/navigation/NavigationEngine/safeTransition';
 import { useNavigationStore } from '@/navigation/NavigationEngine/NavigationStore';
@@ -17,7 +23,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Animated, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const CARD_COLLAPSED_HEIGHT = 180;
 const CARD_EXPANDED_HEIGHT = 420;
@@ -35,31 +41,24 @@ export default function DriverTripScreen() {
         waitingDuration,
         startTrip,
         completeTrip,
-        currentLocation,
         updateLocation,
         vehicleType,
     } = useDriverStore();
     const navigation = useNavigation();
 
-    const [driverLocation, setDriverLocation] = useState<{ latitude: number; longitude: number } | null>(
-        currentLocation
-    );
-    const [driverHeading, setDriverHeading] = useState<number>(0);
-    const [currentSpeed, setCurrentSpeed] = useState(0);
+    // Engine-owned — read from NavigationStore, not mirrored into local
+    // state (matches app/(driver)/navigation.tsx's migration pattern; see
+    // NavigationEngine/Architecture.md's Rollout plan step 6).
+    const driverLocation = useDriverLocation();
+    const heading = useHeading();
+
     const [elapsedTime, setElapsedTime] = useState(0);
-    const [routeCoordinates, setRouteCoordinates] = useState<Array<{ latitude: number; longitude: number }>>([]);
-    const [isAutoFollow, setIsAutoFollow] = useState(true);
-    const [lastInteraction, setLastInteraction] = useState(0);
     const [isExpanded, setIsExpanded] = useState(false);
-    const [routeSteps, setRouteSteps] = useState<DirectionStep[]>([]);
-    const [activeStepIndex, setActiveStepIndex] = useState(0);
-    const [distanceToManeuverMeters, setDistanceToManeuverMeters] = useState<number | null>(null);
-    const mapRef = useRef<any>(null);
     const insets = useSafeAreaInsets();
     const overlayAnim = useRef(new Animated.Value(CARD_COLLAPSED_HEIGHT + 16)).current;
 
-    // Slides the navigation-arrow / speed overlays up as the trip card
-    // expands, so they never end up hidden behind (or overlapping) it.
+    // Slides the speed/compass overlays up as the trip card expands, so they
+    // never end up hidden behind (or overlapping) it.
     useEffect(() => {
         Animated.spring(overlayAnim, {
             toValue: isExpanded ? CARD_EXPANDED_HEIGHT + 16 : CARD_COLLAPSED_HEIGHT + 16,
@@ -75,13 +74,32 @@ export default function DriverTripScreen() {
     const distanceTraveledRef = useRef(0);
     const lastGpsPointRef = useRef<{ latitude: number; longitude: number; accuracy: number | null; timestamp: number } | null>(null);
 
-    useDriverTelemetryPing(currentTrip?.id, driverLocation, driverHeading);
+    useDriverTelemetryPing(currentTrip?.id, driverLocation, heading ?? 0);
 
     // Start trip when component mounts
     useEffect(() => {
         if (tripStatus !== 'in_progress') {
             startTrip();
         }
+    }, []);
+
+    // Runtime handoff — mirrors app/(driver)/navigation.tsx's driverToPickup
+    // recovery dispatch. Mode is normally already TRIP_IN_PROGRESS by the
+    // time this screen mounts (dispatched at handleStartRide in
+    // navigation.tsx), so this is typically a safeTransition-guarded no-op —
+    // kept as the recovery path for a remount/race where that earlier
+    // dispatch never landed.
+    useEffect(() => {
+        safeTransition(() => navigation.startTrip());
+    }, []);
+
+    // Phase 6A (Camera Runtime Activation): TRIP_IN_PROGRESS's follow
+    // behaviour only applies once cameraState is FOLLOW_DRIVER (the default,
+    // 'OVERVIEW', would otherwise resolve to an auto-fit pose) — the
+    // existing, Bible-documented action for this (`navigation.followDriver()`),
+    // same call navigation.tsx makes on its own mount.
+    useEffect(() => {
+        navigation.followDriver();
     }, []);
 
     // Accumulates the real GPS distance travelled between consecutive fixes —
@@ -130,156 +148,69 @@ export default function DriverTripScreen() {
         return true;
     };
 
-    // Track driver location (high accuracy, 1–2s interval). GPS acquisition
-    // goes entirely through GPSManager — the only file allowed to create a
-    // location subscription (src/navigation/NavigationEngine/GPSManager.ts).
+    // GPS acquisition lifecycle only — goes entirely through GPSManager, the
+    // only file allowed to create a location subscription
+    // (src/navigation/NavigationEngine/GPSManager.ts). NavigationProvider
+    // (mounted once at the app root) already forwards every fix into
+    // NavigationStore.driverLocation/heading for every consumer, this screen
+    // included, via the selectors above.
     useEffect(() => {
-        let cancelled = false;
-        const unsubscribeFix = GPSManager.onFix((fix) => {
-            setDriverLocation(fix.coordinate);
-            updateLocation(fix.coordinate.latitude, fix.coordinate.longitude);
-            trackGpsPoint(fix);
-            if (fix.heading !== undefined) {
-                setDriverHeading(fix.heading);
-            }
-            if (fix.speed !== undefined && fix.speed >= 0) {
-                setCurrentSpeed(Math.round(fix.speed * 3.6));
-            }
+        GPSManager.acquire('foreground', 'driverBestNavigation').catch(() => {
+            // Non-critical — location tracking will retry on next mount.
         });
 
-        async function startTracking() {
-            try {
-                await GPSManager.acquire('foreground', 'driverBestNavigation');
-                if (cancelled) return;
-
-                const existingFix = GPSManager.getLastFix();
-                if (existingFix) {
-                    setDriverLocation(existingFix.coordinate);
-                    updateLocation(existingFix.coordinate.latitude, existingFix.coordinate.longitude);
-                    trackGpsPoint(existingFix);
-                    if (existingFix.heading !== undefined) {
-                        setDriverHeading(existingFix.heading);
-                    }
-                }
-            } catch {
-                // Non-critical — location tracking will retry on next mount.
-            }
-        }
-
-        startTracking();
-
         return () => {
-            cancelled = true;
-            unsubscribeFix();
             GPSManager.release();
         };
     }, []);
 
+    // Business-logic-only raw fix listener: fare-distance accumulation needs
+    // each fix's accuracy/timestamp, which NavigationStore.driverLocation
+    // (a plain LatLng) doesn't carry. Subscribes to the same GPSManager
+    // event bus NavigationProvider already listens on — not a second
+    // location subscription, GPSManager remains the sole GPS owner.
+    useEffect(() => {
+        const unsubscribeFix = GPSManager.onFix((fix) => {
+            trackGpsPoint(fix);
+        });
+
+        const existingFix = GPSManager.getLastFix();
+        if (existingFix) {
+            trackGpsPoint(existingFix);
+        }
+
+        return () => {
+            unsubscribeFix();
+        };
+    }, []);
+
+    // Bridges the engine's live driverLocation into driverStore's persisted
+    // position (hex9/nearbyHexes/incomingRequests recompute on every call) —
+    // NavigationStore intentionally isn't written back to driverStore on its
+    // own (Architecture.md's "Relationship to existing stores").
+    useEffect(() => {
+        if (driverLocation) {
+            updateLocation(driverLocation.latitude, driverLocation.longitude);
+        }
+    }, [driverLocation, updateLocation]);
+
     // Fetch route to destination for in-app navigation. Routing goes
     // entirely through RouteEngine — the only file allowed to fetch/cache
     // Directions (src/navigation/NavigationEngine/RouteEngine.ts).
+    // NavigationStore is the sole owner of route data — NavigationMap /
+    // NavigationTurnBanner / RouteProgressTracker all read it from there.
     useEffect(() => {
         if (!driverLocation || !currentTrip) return;
         let cancelled = false;
         (async () => {
             const route = await fetchRoute(driverLocation, currentTrip.destination);
             if (!route || cancelled) return;
-            // Publishes the fetched destination route into NavigationStore
-            // alongside this screen's own local state (Phase 5D).
             useNavigationStore.getState().setRoute(route);
-            setRouteCoordinates(route.path);
-            // Adapted to the shape this screen already expects — RouteEngine's
-            // own RouteStep carries the same data as flat numeric fields
-            // instead of Google's {text,value} pairs.
-            setRouteSteps(route.steps.map((step): DirectionStep => ({
-                instruction: step.instruction,
-                distance: { text: formatManeuverDistance(step.distanceMeters), value: step.distanceMeters },
-                duration: { text: `${Math.round(step.durationSeconds / 60)} min`, value: step.durationSeconds },
-                startLocation: step.startLocation,
-                endLocation: step.endLocation,
-                maneuver: step.maneuver,
-                polyline: '', // unused by <Map routeSteps> (only maneuver/start/endLocation are read)
-            })));
-            setActiveStepIndex(0);
         })();
         return () => {
             cancelled = true;
         };
     }, [driverLocation?.latitude, driverLocation?.longitude, currentTrip?.destination?.latitude, currentTrip?.destination?.longitude]);
-
-    // TBT step advance — also tracks live distance to the upcoming maneuver
-    // for the turn preview pulse/color escalation, matching app/(tabs)/navigate.tsx.
-    useEffect(() => {
-        if (!driverLocation || routeSteps.length === 0) {
-            setDistanceToManeuverMeters(null);
-            return;
-        }
-        const step = routeSteps[activeStepIndex];
-        if (!step) {
-            setDistanceToManeuverMeters(null);
-            return;
-        }
-
-        const dist = calculateDistanceMeters(
-            driverLocation.latitude,
-            driverLocation.longitude,
-            step.endLocation.latitude,
-            step.endLocation.longitude
-        );
-
-        setDistanceToManeuverMeters(dist);
-
-        if (dist < 25 && activeStepIndex < routeSteps.length - 1) {
-            setActiveStepIndex((prev) => prev + 1);
-        }
-    }, [driverLocation, routeSteps, activeStepIndex]);
-
-    // Auto-follow logic: resumes following after 5 seconds of no interaction
-    useEffect(() => {
-        if (!isAutoFollow) {
-            const timer = setInterval(() => {
-                const now = Date.now();
-                if (now - lastInteraction > 5000) {
-                    setIsAutoFollow(true);
-                }
-            }, 1000);
-            return () => clearInterval(timer);
-        }
-    }, [isAutoFollow, lastInteraction]);
-
-    const handleMapAction = () => {
-        setIsAutoFollow(false);
-        setLastInteraction(Date.now());
-    };
-
-    // Camera follow mode during trip — heading-up, with a bearing-toward-next-maneuver
-    // fallback for stationary/low-speed GPS fixes (heading unreliable near 0),
-    // matching the pattern in app/(tabs)/navigate.tsx.
-    useEffect(() => {
-        if (!driverLocation || !isAutoFollow) return;
-        if (mapRef.current?.animateCamera) {
-            const nextStep = routeSteps[activeStepIndex];
-            const cameraHeading = (driverHeading && driverHeading > 1)
-                ? driverHeading
-                : nextStep
-                    ? calculateBearing(
-                        { latitude: driverLocation.latitude, longitude: driverLocation.longitude },
-                        { latitude: nextStep.endLocation.latitude, longitude: nextStep.endLocation.longitude }
-                    )
-                    : driverHeading;
-
-            mapRef.current.animateCamera({
-                center: {
-                    latitude: driverLocation.latitude,
-                    longitude: driverLocation.longitude,
-                },
-                heading: cameraHeading || 0,
-                pitch: 45,
-                altitude: 500,
-                zoom: 17,
-            }, 700);
-        }
-    }, [driverLocation?.latitude, driverLocation?.longitude, driverHeading, isAutoFollow, routeSteps, activeStepIndex]);
 
     // Timer
     useEffect(() => {
@@ -311,8 +242,6 @@ export default function DriverTripScreen() {
         const arrival = new Date(Date.now() + mins * 60000);
         return arrival.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     }, [distance]);
-
-    const { pulseScale: turnPulseScale, color: turnDistanceColor } = useTurnPreview(distanceToManeuverMeters);
 
     if (!currentTrip || !vehicleType) {
         return null;
@@ -369,109 +298,43 @@ export default function DriverTripScreen() {
         return `${mins}:${secs.toString().padStart(2, '0')}`;
     };
 
-    const currentStep = routeSteps[activeStepIndex];
-    const nextManeuverIcon = getManeuverIconName(currentStep?.maneuver);
-
     return (
         <View className="flex-1 bg-background">
-            {/* Full-screen Map */}
+            {/* Full-screen Map — the engine (CameraController, driven by
+                NavigationStore) owns every marker/camera decision this base
+                layer renders; the screen no longer passes driver position,
+                route, or camera props by hand. */}
             <View className="absolute inset-0">
-                <Map
-                    ref={mapRef}
-                    driverLocation={driverLocation || undefined}
-                    driverHeading={driverHeading}
-                    navigationArrowMode={true}
-                    destination={currentTrip.destination}
-                    showRoute={routeCoordinates.length > 0}
-                    routeCoordinates={routeCoordinates}
-                    scrollEnabled={true}
-                    zoomEnabled={true}
-                    autoFollowDriver={false}
-                    onPanDrag={handleMapAction}
-                    onRegionChangeComplete={handleMapAction}
-                    eta={`${Math.ceil(parseFloat(distance) * 2)} min ETA`} // Approximation or use real route ETA if available
-                    showZoomControls={true}
-                    mapPadding={{ top: 0, right: 0, bottom: 200, left: 0 }}
-                />
+                <NavigationMap />
             </View>
 
-            {/* Next turn HUD — top-left, shown once route steps are available */}
-            {routeSteps.length > 0 && (
-                <View
-                    style={{
-                        position: 'absolute',
-                        top: insets.top + 8,
-                        left: 16,
-                        right: 16,
-                        zIndex: 20,
-                    }}
-                >
-                    <View
-                        style={{
-                            backgroundColor: 'white',
-                            borderRadius: 16,
-                            padding: 12,
-                            flexDirection: 'row',
-                            alignItems: 'center',
-                            shadowColor: '#000',
-                            shadowOffset: { width: 0, height: 2 },
-                            shadowOpacity: 0.15,
-                            shadowRadius: 8,
-                            elevation: 8,
-                        }}
-                    >
-                        <Animated.View
-                            style={{
-                                width: 40,
-                                height: 40,
-                                borderRadius: 20,
-                                backgroundColor: '#F3F4F6',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                marginRight: 12,
-                                transform: [{ scale: turnPulseScale }],
-                            }}
-                        >
-                            <Ionicons name={nextManeuverIcon} size={20} color="#26344F" />
-                        </Animated.View>
-                        <View style={{ flex: 1 }}>
-                            <Text style={{ color: '#7B8387', fontSize: 10, marginBottom: 2 }}>
-                                NEXT TURN
-                            </Text>
-                            <Text
-                                style={{ color: '#26344F', fontWeight: 'bold', fontSize: 15 }}
-                                numberOfLines={1}
-                            >
-                                {currentStep ? currentStep.instruction.replace(/<[^>]*>/g, '') : ''}
-                            </Text>
-                        </View>
-                        <View style={{ alignItems: 'flex-end' }}>
-                            <Text style={{ color: '#7B8387', fontSize: 10 }}>IN</Text>
-                            <Text style={{ fontWeight: 'bold', fontSize: 18, color: turnDistanceColor }}>
-                                {distanceToManeuverMeters !== null ? formatManeuverDistance(distanceToManeuverMeters) : '--'}
-                            </Text>
+            {/* Turn-by-turn top HUD — store-driven, kept live by
+                RouteProgressTracker on every GPS tick. */}
+            <SafeAreaView className="flex-1" edges={['top']} pointerEvents="box-none">
+                <View className="flex-row items-start justify-between px-5 pt-2 gap-3" pointerEvents="box-none">
+                    <View className="flex-1 gap-2" pointerEvents="box-none">
+                        <NavigationTurnBanner />
+                        <View className="flex-row gap-2" pointerEvents="box-none">
+                            <NavigationLaneGuidance />
+                            <NavigationRoadName />
                         </View>
                     </View>
+                    <NavigationArrivalTime />
                 </View>
-            )}
+            </SafeAreaView>
 
-            {/* Compass button overlay — below zoom controls, resets camera to north-up */}
+            {/* Compass + Recenter — engine components; Recenter only renders
+                once the driver pans/pinches away from follow (replaces the
+                old isAutoFollow/lastInteraction timer). */}
             <View
                 pointerEvents="auto"
-                style={{
-                    position: 'absolute',
-                    right: 16,
-                    top: 160,
-                    zIndex: 10,
-                }}
+                style={{ position: 'absolute', right: 16, top: 160, zIndex: 10, gap: 12 }}
             >
-                <CompassButton
-                    heading={driverHeading}
-                    onPress={() => mapRef.current?.animateCamera?.({ heading: 0 }, 700)}
-                />
+                <NavigationCompass />
+                <NavigationControls />
             </View>
 
-            {/* Speed display + speed limit overlay — bottom-left, above the trip card */}
+            {/* Speed display — bottom-left, above the trip card */}
             <Animated.View
                 pointerEvents="none"
                 style={{
@@ -481,52 +344,7 @@ export default function DriverTripScreen() {
                     zIndex: 10,
                 }}
             >
-                <View
-                    style={{
-                        width: 64,
-                        height: 64,
-                        borderRadius: 32,
-                        backgroundColor: 'white',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        borderWidth: 3,
-                        borderColor: '#FE5035',
-                        shadowColor: '#000',
-                        shadowOffset: { width: 0, height: 2 },
-                        shadowOpacity: 0.2,
-                        shadowRadius: 4,
-                        elevation: 5,
-                        marginBottom: 8,
-                    }}
-                >
-                    <Text className="text-primary font-bold text-2xl">
-                        {currentSpeed}
-                    </Text>
-                    <Text className="text-secondary text-xs">km/h</Text>
-                </View>
-
-                <View
-                    style={{
-                        width: 64,
-                        borderRadius: 12,
-                        backgroundColor: 'white',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        paddingVertical: 4,
-                        borderWidth: 2,
-                        borderColor: '#EF4444',
-                        shadowColor: '#000',
-                        shadowOffset: { width: 0, height: 2 },
-                        shadowOpacity: 0.15,
-                        shadowRadius: 3,
-                        elevation: 4,
-                    }}
-                >
-                    <Text style={{ color: '#EF4444', fontWeight: 'bold', fontSize: 14 }}>
-                        60
-                    </Text>
-                    <Text className="text-secondary text-xs">LIMIT</Text>
-                </View>
+                <NavigationSpeedWidget speedLimitKph={60} />
             </Animated.View>
 
             {/* Bottom trip card — collapsed shows stats only, expanded adds passenger/pickup/dropoff/fare */}
