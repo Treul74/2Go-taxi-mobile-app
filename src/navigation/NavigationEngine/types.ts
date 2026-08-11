@@ -73,6 +73,8 @@ export interface GPSFix {
   timestamp: number;
   /** This fix's quality tier — see `GPSFixQuality` and GPSManager.ts's scoring algorithm. Always one of EXCELLENT/GOOD/FAIR/POOR here, since a REJECTED fix never reaches this type. */
   quality: GPSFixQuality;
+  /** True if this fix was sourced from a last-known-position cache while waiting for a live fix. */
+  isApproximate?: boolean;
 }
 
 /** Named GPS accuracy/power tradeoffs. See GPSManager in Architecture.md. */

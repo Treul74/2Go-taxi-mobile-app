@@ -795,45 +795,91 @@ async function performStart(mode: GPSTrackingMode, profile: GPSProfile, force: b
 
   trackingState = 'starting';
   setStatus('acquiring');
-  const options = PROFILE_OPTIONS[profile];
 
-  try {
-    if (mode === 'foreground') {
-      foregroundSubscription = await Location.watchPositionAsync(
-        {
+  // Immediately try to fetch last known position for a temporary approximate fix
+  Location.getLastKnownPositionAsync().then((loc) => {
+    if (loc && trackingState === 'starting' && currentStatus === 'acquiring') {
+      const fix = scoreOneShotFix(loc, PROFILE_OPTIONS[profile]);
+      if (fix) {
+        fix.isApproximate = true;
+        fix.quality = 'POOR'; // Force it to poor so it's treated as a fallback
+
+        const previousHeading = lastFix?.heading;
+        const previousSpeed = lastFix?.speed;
+        lastFix = fix;
+        
+        emit('LOCATION_UPDATED', { fix });
+        if (fix.heading !== undefined && fix.heading !== previousHeading) {
+          emit('HEADING_UPDATED', { heading: fix.heading });
+        }
+        if (fix.speed !== undefined && fix.speed !== previousSpeed) {
+          emit('SPEED_UPDATED', { speed: fix.speed });
+        }
+      }
+    }
+  }).catch(() => { /* silent */ });
+
+  let currentProfileToTry = profile;
+  let success = false;
+  let lastError: any = null;
+
+  const profileFallbackOrder: GPSProfile[] = ['driverBestNavigation', 'customerBalanced', 'backgroundLowPower'];
+  const fallbackIndex = profileFallbackOrder.indexOf(profile);
+  const profilesToTry = fallbackIndex !== -1 ? profileFallbackOrder.slice(fallbackIndex) : [profile];
+
+  for (const p of profilesToTry) {
+    const options = PROFILE_OPTIONS[p];
+    try {
+      if (mode === 'foreground') {
+        foregroundSubscription = await Location.watchPositionAsync(
+          {
+            accuracy: options.accuracy,
+            timeInterval: options.timeIntervalMs,
+            distanceInterval: options.distanceIntervalMeters,
+          },
+          handleRawLocation
+        );
+      } else {
+        await Location.startLocationUpdatesAsync(BACKGROUND_LOCATION_TASK, {
           accuracy: options.accuracy,
           timeInterval: options.timeIntervalMs,
           distanceInterval: options.distanceIntervalMeters,
-        },
-        handleRawLocation
-      );
-    } else {
-      await Location.startLocationUpdatesAsync(BACKGROUND_LOCATION_TASK, {
-        accuracy: options.accuracy,
-        timeInterval: options.timeIntervalMs,
-        distanceInterval: options.distanceIntervalMeters,
-        showsBackgroundLocationIndicator: true,
-        foregroundService: {
-          notificationTitle: '2Go is tracking your trip',
-          notificationBody: 'Your location is being used for active navigation.',
-          notificationColor: '#26344F',
-        },
-      });
+          showsBackgroundLocationIndicator: true,
+          foregroundService: {
+            notificationTitle: '2Go is tracking your trip',
+            notificationBody: 'Your location is being used for active navigation.',
+            notificationColor: '#26344F',
+          },
+        });
+      }
+      success = true;
+      currentProfileToTry = p;
+      if (__DEV__ && p !== profile) {
+        console.log(`[GPSManager] Fallback successful: downgraded profile from ${profile} to ${p}`);
+      }
+      break;
+    } catch (error) {
+      lastError = error;
+      if (__DEV__) {
+        console.warn(`[GPSManager] Profile ${p} failed to start:`, error);
+      }
     }
-  } catch (error) {
+  }
+
+  if (!success) {
     activeMode = null;
     activeProfile = null;
     trackingState = 'error';
     setStatus('lost');
-    const message = error instanceof Error ? error.message : String(error);
+    const message = lastError instanceof Error ? lastError.message : String(lastError);
     throw new GPSManagerError(`Failed to start ${mode} location tracking: ${message}`, 'START_FAILED');
   }
 
   activeMode = mode;
-  activeProfile = profile;
+  activeProfile = currentProfileToTry;
   isPaused = false;
   trackingState = 'tracking';
-  emit('TRACKING_STARTED', { mode, profile });
+  emit('TRACKING_STARTED', { mode, profile: currentProfileToTry });
   if (mode === 'background') {
     emit('BACKGROUND_STARTED', {});
   }

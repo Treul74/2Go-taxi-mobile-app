@@ -17,3 +17,5 @@ export { NavigationVoiceToggle } from './NavigationVoiceToggle';
 export { NavigationArrivalTime } from './NavigationArrivalTime';
 export { NavigationRoadName } from './NavigationRoadName';
 export { NavigationLaneGuidance } from './NavigationLaneGuidance';
+export { DriverActiveTripCard } from './DriverActiveTripCard';
+export type { DriverActiveTripCardProps } from './DriverActiveTripCard';
