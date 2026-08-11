@@ -1,6 +1,7 @@
 import { BackButton, Button } from '@/components/ui';
 import { formatDisplayAddress } from '@/lib';
 import { nearestRoad, reverseGeocode } from '@/lib/google';
+import { animateCameraTo } from '@/navigation/NavigationEngine/CameraController';
 import * as GPSManager from '@/navigation/NavigationEngine/GPSManager';
 import type { Location } from '@/types';
 import { Ionicons } from '@expo/vector-icons';
@@ -156,17 +157,18 @@ export function MapPickerModal({
 
   // Handle go to current location — a single fresh read via GPSManager, the
   // only file allowed to talk to expo-location directly (see GPSManager.ts).
+  // The camera move itself goes through CameraController.animateCameraTo
+  // (AGENTS.md Camera Rules: no screen calls animateCamera/animateToRegion
+  // directly) — this modal's own MapView is never attachMap()-registered as
+  // the engine's tracked navigation map (a transient coordinate picker, not
+  // a trip surface), so it uses that shared, stateless application function
+  // directly rather than the singleton-bound recenterOnLocation.
   const handleGoToMyLocation = async () => {
     try {
-      const fix = await GPSManager.getCurrentFix('passengerBalanced');
+      const fix = await GPSManager.getCurrentFix('customerBalanced');
       if (!fix || !mapRef.current) return;
 
-      mapRef.current.animateToRegion({
-        latitude: fix.coordinate.latitude,
-        longitude: fix.coordinate.longitude,
-        latitudeDelta: 0.0035,
-        longitudeDelta: 0.0016,
-      }, 1000);
+      animateCameraTo(mapRef.current, fix.coordinate);
     } catch (error) {
       console.error('Error getting current location:', error);
     }

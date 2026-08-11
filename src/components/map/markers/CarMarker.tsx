@@ -2,7 +2,7 @@ import React from 'react';
 import { Image, View } from 'react-native';
 
 /**
- * Marker color variants for Transporter vehicles on the map.
+ * Marker color variants for Driver vehicles on the map.
  * No longer used to tint the car body (every active vehicle class renders
  * the same car asset) — kept only to distinguish the offline/unavailable
  * state, which dims the marker instead of recoloring it.

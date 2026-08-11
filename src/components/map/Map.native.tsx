@@ -10,7 +10,7 @@ import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 import type { MapProps } from './Map';
 import { MapPlaceholder } from './MapPlaceholder';
-import { AnimatedUserLocation, AnimatedVehicleMarker, ArrivalTimeMarker, NavigationArrowMarker, SearchPulseMarker, UserLocationMarker } from './markers';
+import { AnimatedUserLocation, AnimatedVehicleMarker, ArrivalTimeMarker, NavigationArrowMarker, SearchPulseMarker, UserLocationMarker, DriverStaticPositionMarker } from './markers';
 
 // Lazy import react-native-maps to handle missing native modules gracefully
 let MapView: any = null;
@@ -53,6 +53,7 @@ try {
 interface RoutePolylineLayerProps {
   showRoute: boolean;
   routeCoordinates: { latitude: number; longitude: number }[];
+  overviewRouteCoordinates?: { latitude: number; longitude: number }[];
   directionArrows: { coordinate: { latitude: number; longitude: number }; bearing: number }[];
   turnHighlights: { latitude: number; longitude: number }[][];
 }
@@ -60,22 +61,38 @@ interface RoutePolylineLayerProps {
 const RoutePolylineLayer = React.memo(function RoutePolylineLayer({
   showRoute,
   routeCoordinates,
+  overviewRouteCoordinates,
   directionArrows,
   turnHighlights,
 }: RoutePolylineLayerProps) {
-  if (!showRoute || routeCoordinates.length === 0) return null;
+  if (!showRoute && (!overviewRouteCoordinates || overviewRouteCoordinates.length === 0)) return null;
 
   return (
     <>
+      {/* Layer 0: Overview Route (underneath the active route) */}
+      {overviewRouteCoordinates && overviewRouteCoordinates.length > 0 && (
+        <Polyline
+          coordinates={overviewRouteCoordinates}
+          strokeColor="#9CA3AF"
+          strokeWidth={5}
+          lineCap="round"
+          lineJoin="round"
+          lineDashPattern={[1, 10]}
+          zIndex={0}
+        />
+      )}
+
       {/* Layer 1: Base Route */}
-      <Polyline
-        coordinates={routeCoordinates}
-        strokeColor={colors.accent}
-        strokeWidth={5}
-        lineCap="round"
-        lineJoin="round"
-        zIndex={1}
-      />
+      {showRoute && routeCoordinates.length > 0 && (
+        <Polyline
+          coordinates={routeCoordinates}
+          strokeColor={colors.accent}
+          strokeWidth={5}
+          lineCap="round"
+          lineJoin="round"
+          zIndex={1}
+        />
+      )}
 
       {/* Layer 2: Direction Arrows */}
       {directionArrows.map((arrow, index) => (
@@ -288,6 +305,7 @@ export const Map = React.forwardRef<any, MapProps>(({
   destination,
   showRoute = false,
   routeCoordinates = [],
+  overviewRouteCoordinates = [],
   routeSteps = [],
   showUserMarker = true,
   scrollEnabled = true,
@@ -305,7 +323,7 @@ export const Map = React.forwardRef<any, MapProps>(({
   showPickupAsUserLocation = false,
   showSearchPulse = false,
   autoFollowDriver = true,
-  passengerHex9,
+  customerHex9,
   showH3Grid = false,
   h3Grid = [],
   eta,
@@ -316,6 +334,7 @@ export const Map = React.forwardRef<any, MapProps>(({
   arrivalTime,
   mapPadding,
   disableInternalCamera = false,
+  isDriverOwnMap = false,
 }: MapProps, ref) => {
   const mapRef = useRef<any>(null);
   const [isReady, setIsReady] = useState(false);
@@ -395,7 +414,15 @@ export const Map = React.forwardRef<any, MapProps>(({
     },
     animateCamera: (camera: any, duration?: number) => {
       if (mapRef.current && typeof mapRef.current.animateCamera === 'function') {
-        mapRef.current.animateCamera(camera, { duration: duration || 1000 });
+        // `?? ` not `||`: CameraController's first-applied pose deliberately
+        // passes duration 0 ("snap directly to the target, no tween" — see
+        // CameraController.recompute's isFirstApplication branch); `|| 1000`
+        // would silently turn that into a 1000ms animation since 0 is
+        // falsy. Only reachable with a real, correctly-shaped number since
+        // NavigationMap.tsx's/CustomerHome.tsx's adapters unwrap
+        // CameraController's `{ duration }` options object before calling
+        // this (Phase 9D camera runtime cleanup).
+        mapRef.current.animateCamera(camera, { duration: duration ?? 1000 });
       }
     },
     fitToCoordinates: (coordinates: any[], options?: any) => {
@@ -560,6 +587,11 @@ export const Map = React.forwardRef<any, MapProps>(({
               coordinate={snappedDriver.position}
               heading={snappedDriver.heading}
             />
+          ) : isDriverOwnMap ? (
+            <DriverStaticPositionMarker
+              key="driver-marker"
+              coordinate={snappedDriver.position}
+            />
           ) : (
             <AnimatedVehicleMarker
               key="driver-marker"
@@ -581,7 +613,7 @@ export const Map = React.forwardRef<any, MapProps>(({
           )
         )}
 
-        {/* Nearby Transporter vehicles */}
+        {/* Nearby Driver vehicles */}
         {vehicles.map((vehicle) => (
           <AnimatedVehicleMarker
             key={vehicle.id}
@@ -614,6 +646,7 @@ export const Map = React.forwardRef<any, MapProps>(({
         <RoutePolylineLayer
           showRoute={showRoute}
           routeCoordinates={routeCoordinates}
+          overviewRouteCoordinates={overviewRouteCoordinates}
           directionArrows={directionArrows}
           turnHighlights={turnHighlights}
         />

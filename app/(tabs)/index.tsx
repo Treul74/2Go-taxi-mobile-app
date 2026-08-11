@@ -1,11 +1,11 @@
 import { DriverDashboard } from '@/features/driver';
-import { PassengerHome } from '@/features/passenger';
+import { CustomerHome } from '@/features/customer';
 import { useUserStore } from '@/state';
 import React from 'react';
 
 /**
  * Home tab - Role-aware screen
- * Displays PassengerHome or DriverDashboard based on current user role
+ * Displays CustomerHome or DriverDashboard based on current user role
  */
 export default function HomeScreen() {
   const role = useUserStore((state) => state.role);
@@ -14,5 +14,5 @@ export default function HomeScreen() {
     return <DriverDashboard />;
   }
 
-  return <PassengerHome />;
+  return <CustomerHome />;
 }

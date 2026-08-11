@@ -76,19 +76,19 @@ const MOCK_DRIVER_POOL: DriverDiscoveryResult[] = [
 
 
 /**
- * Find nearby drivers based on a passenger's H3 hexagon.
+ * Find nearby drivers based on a customer's H3 hexagon.
  *
  * Uses k-ring radius 6 (~2km search area).
  *
- * @param passengerHex9 - The H3 hexagon index (resolution 9) of the passenger
+ * @param customerHex9 - The H3 hexagon index (resolution 9) of the customer
  * @param radius - The search radius in hexagons (default: 6, approx 2km)
  * @returns Array of driver objects found within the search area
  */
-export function findNearbyDrivers(passengerHex9: string, radius: number = 6): DriverDiscoveryResult[] {
-    if (!passengerHex9) return [];
+export function findNearbyDrivers(customerHex9: string, radius: number = 6): DriverDiscoveryResult[] {
+    if (!customerHex9) return [];
 
     // 1. Generate nearby hexes using k-ring (radius 6 = ~2km)
-    const nearbyHexes = getNearbyHexes(passengerHex9, radius);
+    const nearbyHexes = getNearbyHexes(customerHex9, radius);
     const searchSet = new Set(nearbyHexes);
 
     // 2. Identify drivers in the store or pool who match these hexes

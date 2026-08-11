@@ -1,755 +1,1262 @@
 # AGENTS.md — 2Go
 
-This file is read by the AI agent before every prompt. Follow it strictly. If
-anything in a prompt conflicts with this file, ask before proceeding.
+This file is the single source of truth for AI coding agents working on the 2Go project.
 
-You are an expert React Native + Expo engineer working on a real, partially-built
-production app, not a toy project. You write clean, simple code. You prioritise
-clarity over abstraction. You never break a working feature to "clean up" code
-unless explicitly asked to. Think like a senior mobile developer who is careful
-about not introducing regressions in a codebase you did not fully write yourself.
----
+AI agents including Cursor, Claude Code, Codex, Windsurf, Antigravity, and similar tools MUST read this file before making any change to the project.
 
-## App Overview
-
-2Go is a Zambia ride-hailing and delivery app. There are two kinds of accounts:
-
-- **Customer** — the default account type everyone gets on signup. Books rides
-  and deliveries, tracks the Transporter in real time, pays on completion.
-- **Transporter** — an upgrade a Customer applies for later, from
-  Settings/Profile. Not offered at signup. A Transporter provides one of three
-  vehicle types: **Rider** (motorbike), **Taxi** (car), or **Tricycle/Truck**.
-  Transporter applications require admin approval before the account can go
-  online and receive requests.
-
-There is also a separate **Admin** web dashboard (not part of this mobile repo)
-for approving Transporter applications and monitoring the platform.
+If a prompt conflicts with this file, stop and explain the conflict before proceeding.
 
 ---
 
-## Tech Stack
+# 1. Role
 
-- **Framework:** React Native 0.81.5 + Expo SDK ~54.0.31, TypeScript
-- **Navigation:** Expo Router ~6.0.21 (file-based routing, wraps React Navigation)
-- **State management:** Zustand ^5.0.8 — one store per domain (see Store
-  Ownership below). `driverWalletStore` persists to AsyncStorage via
-  `zustand/middleware/persist`.
-- **Styling:** NativeWind ^4.2.1 (Tailwind classes via `className`) is the
-  default for all components. Use `StyleSheet.create()` only for: map
-  `absoluteFill` containers, and any component where NativeWind's `className`
-  does not apply reliably (e.g. certain `react-native-maps` children). Inline
-  `style={{ ... }}` is acceptable only for genuinely dynamic/calculated values
-  (computed widths, animated positions) — never for static styling that could
-  be a Tailwind class.
-- **Maps:** `react-native-maps` 1.20.1 with `PROVIDER_GOOGLE` on native,
-  `@react-google-maps/api` on web (`Map.web.tsx`). Keep the `Map.native.tsx` /
-  `Map.web.tsx` / `Map.tsx` split — do not merge them.
-- **Maps APIs:** Google Maps REST APIs only, all calls go through
-  `src/lib/google/mapsApi.ts` — Places Autocomplete, Place Details, Directions,
-  Distance Matrix, Geocoding, Reverse Geocoding, Snap to Roads. Never call a
-  Google Maps REST endpoint directly from a screen or component — always go
-  through `mapsApi.ts`.
-- **Spatial engine:** `h3-js` ^4.4.0 at resolution 9 (~170m hexagons) for
-  Transporter/Customer proximity discovery, wrapped in
-  `src/core/spatialEngine.ts`. Never call `h3-js` directly from a screen —
-  always go through `spatialEngine.ts`.
-- **Backend & Auth:** **InsForge** (one backend for database, auth, storage,
-  edge functions, realtime, AI gateway, and payments). Do **not** use Clerk,
-  Auth0, WorkOS, Better Auth, Supabase, Neon, or raw `pg`. If you see imports
-  of `@clerk/clerk-expo`, `@neondatabase/serverless`, or `pg` in any file,
-  flag it — those packages are being removed and must not be reintroduced.
-  Use InsForge's own native auth (`auth.users`, `auth.uid()`) exclusively.
-- **Auth method:** Email + password via InsForge native auth. Phone number is
-  collected at signup and stored in the customers table. Everyone signs up the
-  same way and becomes a **Customer**. There is no role picker at signup.
+You are an expert React Native + Expo engineer building a production-grade ride-hailing and delivery application. You write clean, simple, readable code. You prioritize clarity over unnecessary abstraction. Think like a senior mobile engineer, you reuse existing architecture, and refactor only when repetition or complexity actually appears.
+
+Write:
+
+* Clean code
+* Simple code
+* Readable code
+* Maintainable code
+* Type-safe code
+* Reusable components
+* Minimal, targeted changes
 
 
-## Folder Structure
+Protect existing functionality.
 
+Do not refactor working systems unless the task explicitly requires it.
+
+Do not introduce new architecture simply because another approach appears cleaner.
+
+---
+
+# 2. Application Overview
+
+2Go is a Zambia-based ride-hailing and delivery application.
+
+The application has two user roles:
+
+## Customer
+
+Customer is the default account type.
+
+Customers can:
+
+* Create an account
+* Book rides
+* Request deliveries
+* Select vehicle types
+* Track Drivers
+* View trip information
+* Pay for services
+* View ride history
+* Rate Drivers
+* Manage saved addresses
+* Manage their profile
+* Send and receive messages
+
+Every new user becomes a Customer.
+
+There is no role selection during signup.
+
+## Driver
+
+Driver is an upgraded account type.
+
+A Customer can apply to become a Driver from the application.
+
+Driver applications require approval before the Driver can go online and receive requests.
+
+Driver vehicle types are:
+
+* Rider — motorbike
+* Taxi — car
+* Tricycle/Truck — tricycle or truck
+
+## Admin
+
+2Go also has a separate web-based Admin dashboard.
+
+The Admin dashboard is outside this mobile repository.
+
+The Admin system is responsible for activities such as:
+
+* Driver approval
+* Platform monitoring
+* Managing operational data
+* Reviewing applications
+
+---
+
+# 3. Official Terminology
+
+The application's official user terminology is:
+
+* **Customer**
+* **Driver**
+
+These are the only user-role terms that should be introduced in new code, UI, comments, documentation, prompts, and features.
+
+## Customer
+
+Never introduce these as new role terminology:
+
+* Passenger
+* Rider
+* Transporter
+
+## Driver
+
+Never introduce:
+
+* Transporter
+
+as a replacement for Driver.
+
+### Vehicle terminology
+
+The valid Driver vehicle types are:
+
+```text
+rider
+taxi
+tricycle
 ```
+
+Their display meanings are:
+
+```text
+rider      → Motorbike
+taxi       → Car
+tricycle   → Tricycle/Truck
+```
+
+### Database legacy exception
+
+The database currently contains the legacy value:
+
+```text
+passenger
+```
+
+inside the `customers.account_type` / `UserRole` system.
+
+This is a persisted database value and MUST NOT be renamed casually.
+
+The application-facing terminology remains:
+
+**Customer**
+
+Only existing database compatibility values may retain legacy terminology.
+
+Do not introduce new legacy terminology elsewhere.
+
+---
+
+# 4. Technology Stack
+
+Do not replace the following technologies without explicit approval.
+
+* **React Native 0.81.5**
+* **Expo SDK ~54.0.31**
+* **TypeScript**
+* **Expo Router ~6.0.21**
+* **Zustand ^5.0.8**
+* **NativeWind ^4.2.1**
+* **react-native-maps 1.20.1**
+* **h3-js ^4.4.0**
+* **InsForge**
+* **AsyncStorage**
+* **React Native Reanimated**
+* **Google Maps APIs**
+* **Lucide / existing icon system**
+
+Do not install new dependencies without asking first.
+
+If an existing dependency can solve the problem, reuse it.
+
+---
+
+# 5. Styling System
+
+NativeWind is the default styling system.
+
+Use Tailwind / NativeWind classes for static styling.
+
+Do not use `StyleSheet.create()` for normal UI styling.
+
+`StyleSheet.create()` is permitted only when NativeWind cannot reliably support the requirement, including:
+
+* Map absolute-fill containers
+* Certain `react-native-maps` components
+* Components that require native-only style properties
+* Other genuinely unsupported NativeWind cases
+
+Inline `style={{ ... }}` is allowed only for genuinely dynamic values such as:
+
+* Calculated widths
+* Dynamic positions
+* Animated values
+* Runtime measurements
+
+Do not use inline styles for static values that could be represented with NativeWind.
+
+---
+
+# 6. 2Go Color System
+
+The 2Go visual identity uses the following palette.
+
+## Primary Palette
+
+| Purpose    | Token              | HEX       |
+| ---------- | ------------------ | --------- |
+| Primary    | Deep Navy          | `#26344F` |
+| Accent     | Vibrant Orange-Red | `#FE5035` |
+| Background | Soft Ice Blue      | `#E7F1F9` |
+| Secondary  | Slate Gray         | `#7B8387` |
+| White      | White              | `#FFFFFF` |
+
+## Status Colors
+
+| Purpose          | HEX       |
+| ---------------- | --------- |
+| Success          | `#00D26A` |
+| Warning / Rating | `#FFB800` |
+| Error            | `#EF4444` |
+
+## Color Usage Rules
+
+The palette is not merely a list of colors.
+
+Every screen must use the palette consistently according to the semantic purpose of the color.
+
+### Deep Navy — `#26344F`
+
+Use for:
+
+* Primary text where appropriate
+* Navigation elements
+* Headers
+* Main controls
+* Primary dark UI surfaces
+* Icons requiring the primary brand color
+* Map/navigation elements where appropriate
+
+### Vibrant Orange-Red — `#FE5035`
+
+Use for:
+
+* Primary actions
+* Main CTA buttons
+* Active states
+* Important interactive controls
+* Selected controls
+* Brand emphasis
+* Primary action indicators
+
+Do not use orange-red as a decorative color everywhere.
+
+It should communicate action and importance.
+
+### Soft Ice Blue — `#E7F1F9`
+
+Use as:
+
+* Main application background
+* Large background surfaces
+* Light map-related UI surfaces
+* Screen-level background areas
+
+### Slate Gray — `#7B8387`
+
+Use for:
+
+* Secondary text
+* Supporting information
+* Inactive states
+* Less-important metadata
+* Secondary UI elements
+
+### White — `#FFFFFF`
+
+Use for:
+
+* Cards
+* Bottom sheets
+* Inputs
+* Floating controls
+* Primary content surfaces
+* Navigation surfaces where appropriate
+
+### Status colors
+
+`#00D26A` = success
+
+`#FFB800` = warning / rating
+
+`#EF4444` = error / destructive action
+
+Status colors must not be used as general decorative colors.
+
+---
+
+# 7. Color Implementation Rules
+
+Never randomly select colors that are visually similar to the approved palette.
+
+Do not introduce:
+
+* Alternative blues
+* Alternative orange-red shades
+* Random grays
+* Random backgrounds
+* Random accent colors
+
+If a design requires a new color that is not covered by the palette:
+
+1. Check whether an existing semantic token can be reused.
+2. If not, explain why a new color is necessary.
+3. Ask for approval before introducing a new brand color.
+
+Centralize reusable color tokens in the project's theme/constants system.
+
+Do not scatter raw HEX values throughout the codebase.
+
+For example, do not repeatedly create:
+
+```tsx
+className="bg-[#FE5035]"
+```
+
+when an existing semantic token already represents the color.
+
+The visual design must remain consistent across:
+
+* Customer screens
+* Driver screens
+* Navigation screens
+* Ride booking
+* Delivery
+* Wallet
+* Messages
+* Account
+* Modals
+* Bottom sheets
+* Cards
+* Buttons
+* Forms
+* Empty states
+* Loading states
+* Error states
+
+---
+
+# 8. Typography
+
+Typography is part of the application's design system.
+
+Use the project's approved font files from:
+
+```text
+src/assets/fonts/
+```
+
+or the project's configured font location.
+
+Do not introduce another font family without explicit approval.
+
+Do not use random system fonts when an approved project font is available.
+
+Typography must be consistent across:
+
+* Headings
+* Screen titles
+* Body text
+* Labels
+* Buttons
+* Inputs
+* Cards
+* Navigation
+* Bottom sheets
+* Error messages
+* Status indicators
+
+Font weights must follow the existing typography system.
+
+Do not create arbitrary font sizes or weights when an existing typography token can be reused.
+
+If the project contains a configured typography system, use it rather than defining one-off values.
+
+**Important:** The exact approved font family names must be taken from the project's existing font configuration/assets. Do not invent or substitute font names.
+
+---
+
+# 9. Folder Structure
+
+The existing project structure must be preserved.
+
+```text
 app/
-  _layout.tsx           Root Stack navigator — contains startup session check
-  profile.tsx            Shared profile edit screen
-  welcome.tsx            Onboarding screen (3 slides, first install only)
-  auth.tsx               Login screen
-  signup.tsx             Create Account screen
-  otp.tsx                OTP Verification screen
-  (tabs)/                Bottom tab group, role-conditional visibility
+  _layout.tsx
+  profile.tsx
+  welcome.tsx
+  auth.tsx
+  signup.tsx
+  otp.tsx
+
+  (tabs)/
     _layout.tsx
-    index.tsx            Routes to PassengerHome (Customer) or DriverDashboard (Transporter)
-    activity.tsx          Customer-only tab
-    wallet.tsx            Transporter-only tab
-    navigate.tsx           Transporter-only tab — dev/testing navigation tool, kept intentionally
-    messages.tsx           Shared tab
-    account.tsx             Shared tab
-  (driver)/                Sub-stack for an active Transporter trip
+    index.tsx
+    activity.tsx
+    wallet.tsx
+    navigate.tsx
+    messages.tsx
+    account.tsx
+
+  (driver)/
     _layout.tsx
-    navigation.tsx           Transporter navigating to pickup
-    trip.tsx                  Active trip in progress
-  chat/[id].tsx              Chat thread
-  ride/[id].tsx                Ride summary/details
-  driver/onboarding.tsx          Transporter application wizard (4 steps)
+    navigation.tsx
+    trip.tsx
+
+  chat/
+    [id].tsx
+
+  ride/
+    [id].tsx
+
+  driver/
+    onboarding.tsx
 
 src/
-  assets/images/
-    onboarding/          car.png, bike.png, truck.png — onboarding hero images
+  assets/
+    images/
+    fonts/
+
   components/
-    map/                Map.native.tsx, Map.web.tsx, Map.tsx, MapPlaceholder.tsx, ProvinceLabel.tsx
-    ui/                 Button, Card, Input, IconButton, Pill, Chip, SegmentedControl,
-                         BottomSheet, Divider, RideActionSlider, icon-symbol
-    system/             ErrorBoundary
+    map/
+    navigation/
+    ui/
+    system/
+
   constants/
-    env.ts              Platform-specific Google Maps key resolver
-    theme.ts            Colour constants (mirrors tailwind.config.js)
-    mapStyle.ts
-    mockData.ts
+
   core/
-    spatialEngine.ts     H3 wrapper — the only file that imports h3-js directly
+
   features/
-    account/             AccountScreen + ProfileCard, RoleSwitcher, SavedAddressesList, MenuList
-    activity/             ActivityScreen + RideListItem
-    driver/                DriverDashboard + DashboardStats, OnlineToggle, RequestCard, StatsCard
-    messaging/              MessagesScreen + ConversationItem, MessageBubble
-    onboarding/               DriverOnboarding (4-step Transporter application wizard)
-    passenger/                 PassengerHome + ActiveTripCard, BookForSomeoneModal, CancellationModal,
-                                InstructionsModal, LocationAutocomplete, LocationSearchModal,
-                                MapPickerModal, MatchingOverlay, QuickDestinations, RideOptions,
-                                RidePlannerSheet, ScheduleRideModal, VehicleCard, VehicleCarousel
-    wallet/                    WalletScreen (Transporter wallet + dashboard tabs)
+    account/
+    activity/
+    driver/
+    messaging/
+    onboarding/
+    customer/
+    wallet/
+
   hooks/
-    useCurrentLocation.ts
-    useSnappedLocation.ts        Snaps GPS to road via Google Roads API
-    use-color-scheme.ts
+
   lib/
-    fareCalculator.ts            Fare formula — see Fare Formula below
-    formatAddress.ts
-    distance.ts                  Single shared Haversine implementation
-    polyfills.ts                 TextEncoder shim for H3
-    auth.ts                      All auth functions — only file that calls InsForge auth
     google/
-      mapsApi.ts                 All Google Maps REST calls live here, nowhere else
-      mapStyle.ts
+
   services/
-    discoveryEngine.ts            Nearby Transporter discovery using H3
+
   state/
-    userStore.ts
-    driverStore.ts
-    rideStore.ts
-    messagingStore.ts
-    driverWalletStore.ts
-    settingsStore.ts
+
   types/
-    index.ts                       All TypeScript types live here
 ```
 
----
-
-## Store Ownership
-
-| Store | Owns |
-|---|---|
-| `userStore` | Account role, profile, saved addresses, Transporter application/onboarding state |
-| `driverStore` | Transporter online/offline status, live location, stats, incoming request queue, current trip |
-| `rideStore` | Customer ride planning, active trip (Customer side), ride history |
-| `messagingStore` | Conversations, messages |
-| `driverWalletStore` | Earnings, balance, transactions — persisted to AsyncStorage |
-| `settingsStore` | Dev/debug toggles (e.g. `h3DebugMode`) |
+Do not move files or restructure directories unless explicitly required.
 
 ---
 
-## Database Tables (InsForge)
+# 10. Component Reuse
 
-### customers
-id, auth_id, first_name, last_name, email, phone_number, country_code,
-profile_photo_url, gender, age, account_type ('passenger'), account_status
-('active'/'suspended'/'pending'/'deleted'), is_verified, email_verified,
-phone_verified, rating, total_ratings, total_completed_rides,
-total_cancelled_rides, preferred_payment_method ('cash'/'airtel_money'/
-'mtn_money'/'card'), created_at, updated_at
+Always check for an existing component before creating a new one.
 
-### saved_addresses
-id, customer_id (FK → customers), label, address, lat, lng, icon,
-is_default, created_at
+Reusable components must be reused throughout the application.
 
-### drivers
-id, auth_id, first_name, last_name, email, phone_number, vehicle_type
-('rider'/'taxi'/'tricycle'), plate_number, licence_photo, vehicle_photo,
-is_approved, account_status ('pending'/'approved'/'rejected'),
-driver_status ('online'/'offline'), current_lat, current_lng,
-driver_heading, created_at, updated_at
+Examples include:
 
-### orders
-id, customer_id, driver_id, status ('pending'/'accepted'/'in_progress'/
-'completed'/'cancelled'), pickup_address, pickup_lat, pickup_lng,
-dropoff_address, dropoff_lat, dropoff_lng, vehicle_type, fare_amount,
-payment_method, base_fare, service_fee_pct, service_fee_amount,
-order_number, driver_heading, driver_current_lat, driver_current_lng,
-estimated_arrival_minutes, distance_to_pickup_km, requested_at,
-accepted_at, driver_arrived_at, trip_started_at, completed_at,
-created_at, updated_at
+* Buttons
+* Cards
+* Inputs
+* Icon buttons
+* Bottom sheets
+* Chips
+* Pills
+* Headers
+* Back buttons
+* Loading indicators
+* Empty states
+* Error states
+* Ride cards
+* Vehicle cards
+* Navigation components
 
-### messages
-id, order_id (FK → orders), sender_type ('customer'/'driver'), sender_id,
-message_text, created_at
+If a reusable component does not exist and the component will be used more than once, create it in the appropriate shared component directory.
+
+Do not duplicate the same UI implementation across multiple screens.
 
 ---
 
-## Naming
+# 11. Navigation
 
-- **Customer** — the person who books rides/deliveries. Default account type
-  for everyone. Never call this role "Rider" or "Passenger" in new code.
-- **Transporter** — umbrella role for anyone providing a vehicle service.
-- **Transporter vehicle types:** `rider` (motorbike), `taxi` (car),
-  `tricycle` (tricycle/truck). These are the only valid values for vehicle type.
-- File naming: project-specific files use `PascalCase.tsx` for components.
+2Go uses ONE global Navigation Engine.
 
----
+The Navigation Engine is the single source of truth for navigation-related behavior.
 
-## Fare Formula
+The complete architecture is defined in:
 
-Defined in `src/lib/fareCalculator.ts`. Do not duplicate this formula anywhere.
-
-```
-fare = baseFare + (distanceKm * perKm) + (durationMinutes * perMinute)
-       + (waitingMinutes * perMinuteWaiting)
-fare = max(fare, minimumFare)
-```
-
-Not yet split by vehicle type — known gap to address.
-
----
-
-## Bottom Tab Bar — Animation Spec
-
-- The **active tab** appears inside a coloured circle, showing **only the icon** — no label.
-- **Inactive tabs** show both icon and label.
-- The active circle **animates smoothly** using `react-native-reanimated`.
-
----
-
-## InsForge Backend
-
-- **Project:** `2go_Taxi` (API base `https://83qckwdx.eu-central.insforge.app`)
-- **Credentials:** app code reads keys from `.env.local`. Never hardcode or commit.
-- Single client instance only — `src/lib/insforge.ts`
-- All auth functions go through `src/lib/auth.ts` only
-
-### Installed Skills
-
-| Skill | Use for |
-|---|---|
-| `insforge` | App code — database CRUD, auth, storage, realtime, payments |
-| `insforge-cli` | SQL migrations, RLS policies, storage buckets, deploys |
-| `insforge-debug` | Diagnosing failures, RLS denials, auth issues |
-| `find-skills` | Discovering additional skills |
-
-### Key InsForge Patterns
-
-- Database inserts always take an **array**: `insert([{ ... }])`
-- Use `auth.uid()` inside RLS policies
-- For storage uploads, persist both `url` and `key`
-
----
-
-## Patterns
-
-- Distance calculation: always import from `src/lib/distance.ts` — never
-  write inline Haversine implementations
-- All InsForge calls go through `src/lib/` only, never from components directly
-- Always check for TypeScript errors after generating code
-- Do not install new libraries without asking first
-- Reuse existing components from `src/components/ui/` before creating new ones
-- Remove `console.log` in non-error-handling paths when touching a file
-- `// BACKEND SYNC:` comments mark where real InsForge calls replace mock logic
-  — work through them one at a time
-- Every audit report (codebase audits, style/blast-radius audits, etc.) is
-  saved as a `.md` file in the `audit_export/` folder — never left only in
-  chat output (see Audit Reports below for the full rule)
-
-## Back Button Standard
-
-Every back arrow in the entire app (passenger, driver, all screens) must
-use the BackButton component from `src/components/ui/BackButton.tsx`.
-
-The component is self-contained:
-- 48×48 white circle
-- rounded-full
-- shadow: color #000, offset (0,2), opacity 0.2, radius 3, elevation 5
-- Ionicons arrow-back, size 24, #26344F
-- Default onPress: router.back()
-
-Usage:
-```
-<BackButton />                    (default)
-<BackButton onPress={customFn} /> (override)
-```
-
-Never implement a custom back arrow outside of this component.
-Never use chevron-back — always arrow-back.
-Never add extra shadow wrapper Views around BackButton.
-
----
-
-## Audit Reports
-
-Every time an audit is run, the agent must automatically save
-the full report as a markdown file in the audit_export/ folder
-at the project root.
-
-Rules:
-- File name format: audit_DD-MM-YY_HH-MM_[description].md
-  Example: audit_20-07-26_14-30_database-tables.md
-  (`/` and `:` are invalid in filenames, so both date and time use hyphens)
-- The file must contain the full audit report — every finding,
-  every file path, every code snippet, every table
-- Save the file immediately after the audit completes, before
-  reporting back in the chat
-- Never overwrite an existing audit file — always use a new
-  timestamped filename
-- The audit_export/ folder already exists at the project root
-  do not create it or modify it in any other way
-- After saving, confirm the file path in the response:
-  "Audit saved to audit_export/[filename].md"
-
-This applies to every audit prompt regardless of scope —
-database audits, code audits, config audits, security audits,
-performance audits, and any other read-only investigation.
-
----
----
-
-# =============================================================================
-# GO NAVIGATION ENGINE
-# =============================================================================
-
-The project uses ONE global Navigation Engine.
-
-The Navigation Engine is the single source of truth for every navigation-related
-feature inside the application.
-
-Do NOT create new navigation implementations.
-
-Everything must reuse the existing Navigation Engine.
-
-The complete architecture and implementation specification lives in:
-
+```text
 GO Navigation Engine Bible.md
+```
 
-Every AI agent must read and follow that document before making any
-navigation-related changes.
+Any AI agent working on navigation MUST read that document before making changes.
 
-If any prompt conflicts with the Navigation Bible, the Navigation Bible takes
-precedence.
+If this file conflicts with the Navigation Bible:
 
----
-
-## Navigation Engine Responsibilities
-
-The Navigation Engine owns every navigation behaviour in the application.
-
-This includes:
-
-- Camera Follow
-- Camera Rotation
-- Camera Bearing
-- Camera Pitch
-- Camera Zoom
-- Camera Padding
-- Auto Fit Camera
-- Route Rendering
-- Polyline Management
-- GPS Tracking
-- Driver Heading
-- Turn Instructions
-- Navigation Banner
-- Marker Animation
-- ETA Calculation
-- Remaining Distance
-- Arrival Detection
-- Pickup Detection
-- Route Progress
-- Re-routing
-- Road Snapping
-- Navigation State Management
-
-No individual screen should implement any of these independently.
+**The Navigation Bible takes precedence for navigation behavior.**
 
 ---
 
-## Single Source of Truth
+# 12. Navigation Engine Responsibilities
 
-The Navigation Engine is the only place allowed to control:
+The Navigation Engine owns:
 
-- Google Maps Camera
-- Route Calculations
-- GPS Updates
-- Navigation State
-- Driver Position
-- Route Progress
-- Camera Animations
+* Camera follow
+* Camera rotation
+* Camera bearing
+* Camera pitch
+* Camera zoom
+* Camera padding
+* Auto-fit camera
+* Route rendering
+* Polyline management
+* GPS tracking
+* Driver heading
+* Turn instructions
+* Navigation banner
+* Marker animation
+* ETA calculation
+* Remaining distance
+* Arrival detection
+* Pickup detection
+* Route progress
+* Re-routing
+* Road snapping
+* Navigation state
 
-Screens must never duplicate navigation logic.
+Do not implement these systems independently inside screens.
 
 ---
 
-## Camera Rules
+# 13. Navigation Camera Rules
 
-The camera is global.
+Screens MUST NOT directly control the navigation camera.
 
-Never animate the map directly from screens.
+Screens must not independently call:
 
-Screens must never call:
+```text
+animateCamera()
+animateToRegion()
+fitToCoordinates()
+setCamera()
+animateToCoordinate()
+```
 
-- animateCamera()
-- animateToRegion()
-- fitToCoordinates()
-- setCamera()
-- animateToCoordinate()
+Instead, screens request navigation behavior from the Navigation Engine.
 
-Instead, screens request behaviour from the Navigation Engine.
+Examples:
 
-Example:
-
+```text
 navigation.previewRoute()
-
 navigation.startNavigation()
-
 navigation.followDriver()
-
 navigation.arrived()
-
 navigation.completeTrip()
+```
 
-The Navigation Engine performs all camera animations.
-
----
-
-## Auto Fit Rules
-
-Whenever both Pickup and Drop-off exist,
-the Navigation Engine automatically computes the optimal viewport.
-
-Requirements:
-
-- Pickup must be visible.
-- Drop-off must be visible.
-- Driver marker visible when appropriate.
-- Bottom sheets must never cover markers.
-- Floating buttons must never cover markers.
-- Safe areas must always be respected.
-- Proper edge padding must always be applied.
-
-No screen should call fitToCoordinates directly.
+The Navigation Engine performs the actual camera behavior.
 
 ---
 
-## Navigation Modes
+# 14. Navigation Modes
 
-The Navigation Engine supports only these navigation states.
+The Navigation Engine supports:
 
+```text
 IDLE
-
-User selecting locations.
-
 PREVIEW
-
-Displaying Pickup and Drop-off.
-
 MATCHING
-
-Waiting for a driver.
-
 DRIVER_TO_PICKUP
-
-Driver navigating to Pickup.
-
 ARRIVED_PICKUP
-
-Driver waiting for Customer.
-
 TRIP_IN_PROGRESS
-
-Customer onboard.
-
 ARRIVED_DROPOFF
-
-Driver reached destination.
-
 TRIP_COMPLETED
-
-Trip finished.
-
 OFFLINE
+```
 
-Driver unavailable.
-
-Every screen must use one of these modes.
-
----
-
-## Camera Behaviour
-
-### PREVIEW MODE
-
-- Auto Fit entire route.
-- North-up map.
-- Show Pickup and Drop-off.
-- Show full route.
-- Dynamic edge padding.
-
-### DRIVER TO PICKUP
-
-- Camera follows driver.
-- Camera bearing follows heading.
-- Driver arrow always centered.
-- Road rotates beneath the driver.
-- Dynamic zoom.
-- Slight pitch for better visibility.
-
-### TRIP IN PROGRESS
-
-- Camera follows driver continuously.
-- Navigation arrow remains fixed facing North.
-- The road rotates beneath the arrow.
-- Upcoming turns remain visible.
-- Dynamic zoom adjusts automatically based on speed and upcoming turns.
-- Smooth camera interpolation.
-- No abrupt camera jumps.
-
-### ARRIVAL
-
-- Camera zooms closer.
-- Rotation slows.
-- Destination becomes centered.
-- Prepare arrival screen transition.
+Screens must use these navigation modes instead of creating independent navigation states.
 
 ---
 
-## Route Rules
+# 15. Navigation Components
 
-The Navigation Engine owns:
+Reusable navigation components belong in:
 
-- Google Directions API
-- Polyline decoding
-- Polyline rendering
-- Alternative routes
-- Traffic routes
-- Remaining distance
-- ETA
-- Route progress
-- Re-routing
-- Snap to Roads
-
-Never duplicate route calculations anywhere else.
-
----
-
-## GPS Rules
-
-Only ONE GPS watcher exists for the entire application.
-
-Never create multiple Location subscriptions.
-
-The Navigation Engine owns:
-
-- Foreground tracking
-- Background tracking
-- Driver heading
-- Speed updates
-- Bearing smoothing
-- Accuracy filtering
-- Position interpolation
-
-Screens consume GPS state only.
-
----
-
-## Navigation Components
-
-All navigation UI must be reusable.
-
-Create reusable components inside:
-
+```text
 src/components/navigation/
+```
 
-Recommended reusable components:
+Existing or approved components may include:
 
+```text
 NavigationEngineProvider
-
 NavigationMap
-
 NavigationCamera
-
 NavigationRoute
-
 NavigationMarkers
-
 NavigationArrow
-
 NavigationHUD
-
 NavigationTurnBanner
-
 NavigationBottomCard
-
 NavigationControls
-
 NavigationVoice
-
 NavigationStateManager
-
 NavigationSpeedCard
-
 NavigationRouteProgress
-
 NavigationAutoFit
-
 NavigationCompass
-
 NavigationArrivalCard
+```
 
 Do not duplicate these components elsewhere.
 
 ---
 
-## Screen Responsibilities
+# 16. GPS Ownership
 
-Screens only request actions.
+Only ONE global GPS watcher should exist for the application.
 
-Example:
+Do not create multiple competing Location subscriptions.
 
-navigation.preview()
+The Navigation Engine owns:
 
-navigation.start()
+* Foreground tracking
+* Background tracking
+* Driver heading
+* Speed
+* Bearing
+* Accuracy filtering
+* Position interpolation
 
-navigation.follow()
+Screens consume GPS state.
 
-navigation.arrived()
-
-navigation.complete()
-
-navigation.cancel()
-
-The Navigation Engine performs every navigation action.
-
----
-
-## AI Navigation Rules
-
-Whenever an AI agent receives a prompt related to:
-
-- Maps
-- Navigation
-- GPS
-- Camera
-- Route
-- Pickup
-- Drop-off
-- ETA
-- Turn Instructions
-- Driver Tracking
-
-The AI MUST first review:
-
-GO Navigation Engine Bible.md
-
-before generating any code.
-
-If the requested implementation conflicts with the Navigation Bible:
-
-- Explain the conflict.
-- Follow the Navigation Bible.
-- Never create duplicate navigation systems.
-- Never create duplicate camera logic.
-- Never create duplicate GPS tracking.
-- Never create duplicate route rendering.
-
-Always extend the existing Navigation Engine.
+Screens do not independently own GPS tracking.
 
 ---
 
-## Navigation Architecture Principle
+# 17. Google Maps Rules
 
-The entire application must behave as if there is only one navigation engine.
+All Google Maps REST API communication goes through:
 
-Every navigation feature, whether used by:
+```text
+src/lib/google/mapsApi.ts
+```
 
-- Customer
-- Driver
-- Delivery
-- Ride Sharing
-- Future logistics features
+Supported services include:
 
-must reuse the same Navigation Engine.
+* Places Autocomplete
+* Place Details
+* Directions
+* Distance Matrix
+* Geocoding
+* Reverse Geocoding
+* Snap to Roads
 
-The Navigation Engine is considered core infrastructure and must never be duplicated, bypassed, or replaced without an explicit architectural decision.
+Never call Google Maps REST endpoints directly from:
 
+* Screens
+* Components
+* UI elements
 
-## Known Gaps (Not Yet Built)
-
-- OAuth (Google/Apple) buttons are UI-only placeholders
-- Negotiation flow not yet built (spec above)
-- Fare formula not yet split by vehicle type
-- ActivityScreen does not yet fetch on tab open
-- Driver ride history screen not yet built
-- `app/ride/[id].tsx` shows static SVG map, not real map
-- Travel mode selector on navigate.tsx is UI-only
-
----
-
-## Development Philosophy
-
-- Build and verify one feature at a time
-- Test each one before moving to the next
-- Prefer readable code over clever code
-- Protect what already works — never refactor a working file as a side
-  effect of an unrelated prompt
-- Keep the smallest useful implementation first
+All requests must go through the shared Maps API layer.
 
 ---
 
-# 🔒 Protected Features (Regression Protection)
+# 18. Map Architecture
 
-## Objective
+Maintain the platform-specific map split:
 
-The project has reached a stage where several core systems have been fully
-implemented, tested, and verified.
+```text
+Map.native.tsx
+Map.web.tsx
+Map.tsx
+```
 
-These systems are now considered **STABLE** and must be protected from
-future regressions.
+Do not merge these files.
 
-The purpose of this section is to instruct all future AI agents to preserve
-working functionality while continuing development.
+Native uses:
 
----
+```text
+react-native-maps
+PROVIDER_GOOGLE
+```
 
-## 1. Protected Features
+Web uses:
 
-The following verified systems must not be unintentionally modified:
-
-- Complete Passenger Ride Lifecycle
-- Complete Driver Ride Lifecycle
-- Navigation Engine Runtime
-- GPSManager
-- NavigationProvider
-- NavigationStore
-- RouteEngine
-- NavigationMap
-- CameraController
-- AutoFitEngine
-- NavigationHUD
-- MarkerAnimator
-
-These are considered production-stable unless explicitly marked otherwise.
+```text
+@react-google-maps/api
+```
 
 ---
 
-## 2. Protected Driver Workflow
+# 19. Spatial Engine
 
-The following workflow is verified and must remain unchanged unless
-explicitly requested:
+The project uses:
 
-Passenger Request
+```text
+h3-js
+```
+
+at resolution 9 for Driver/Customer proximity discovery.
+
+All H3 functionality must go through:
+
+```text
+src/core/spatialEngine.ts
+```
+
+Screens must never import or call `h3-js` directly.
+
+---
+
+# 20. Backend — InsForge
+
+InsForge is the only backend platform.
+
+Do not introduce:
+
+* Clerk
+* Auth0
+* WorkOS
+* Better Auth
+* Supabase
+* Neon
+* Raw PostgreSQL clients
+
+If these imports appear:
+
+```text
+@clerk/clerk-expo
+@neondatabase/serverless
+pg
+```
+
+flag them.
+
+They must not be reintroduced.
+
+InsForge provides:
+
+* Database
+* Authentication
+* Storage
+* Edge Functions
+* Realtime
+* AI gateway
+* Payments
+
+---
+
+# 21. Authentication
+
+Authentication uses InsForge native authentication.
+
+Current method:
+
+```text
+Email + Password
+```
+
+Phone number is collected during signup and stored in the Customer record.
+
+Everyone signs up as:
+
+```text
+Customer
+```
+
+There is no role picker during signup.
+
+Driver status is obtained only after a Customer applies for Driver status and receives approval.
+
+All authentication functions must go through:
+
+```text
+src/lib/auth.ts
+```
+
+Do not call authentication APIs directly from screens.
+
+---
+
+# 22. Authentication Persistence
+
+Authentication/session state must survive application restarts.
+
+Use the existing InsForge authentication/session mechanism together with the project's state/persistence architecture.
+
+On application startup:
+
+1. Check for an existing session.
+2. Restore the user state.
+3. Route authenticated users into the application.
+4. Route unauthenticated users to authentication.
+5. Handle a missing session gracefully.
+
+The application must never crash because no session exists.
+
+---
+
+# 23. State Management
+
+Use Zustand.
+
+Each store owns one domain.
+
+| Store               | Responsibility                                               |
+| ------------------- | ------------------------------------------------------------ |
+| `userStore`         | Account role, profile, saved addresses, Driver application   |
+| `driverStore`       | Driver availability, location, stats, requests, current trip |
+| `rideStore`         | Customer ride planning, active trip, ride history            |
+| `messagingStore`    | Conversations and messages                                   |
+| `driverWalletStore` | Earnings, balance, transactions                              |
+| `settingsStore`     | Development/debug settings                                   |
+
+Do not create a second store for information already owned by an existing store.
+
+Do not duplicate state across stores without a clear reason.
+
+---
+
+# 24. Database
+
+Current major InsForge tables include:
+
+## customers
+
+```text
+id
+auth_id
+first_name
+last_name
+email
+phone_number
+country_code
+profile_photo_url
+gender
+age
+account_type
+account_status
+is_verified
+email_verified
+phone_verified
+rating
+total_ratings
+total_completed_rides
+total_cancelled_rides
+preferred_payment_method
+created_at
+updated_at
+```
+
+## saved_addresses
+
+```text
+id
+customer_id
+label
+address
+lat
+lng
+icon
+is_default
+created_at
+```
+
+## drivers
+
+```text
+id
+auth_id
+first_name
+last_name
+email
+phone_number
+vehicle_type
+plate_number
+licence_photo
+vehicle_photo
+is_approved
+account_status
+driver_status
+current_lat
+current_lng
+driver_heading
+created_at
+updated_at
+```
+
+## orders
+
+```text
+id
+customer_id
+driver_id
+status
+pickup_address
+pickup_lat
+pickup_lng
+dropoff_address
+dropoff_lat
+dropoff_lng
+vehicle_type
+fare_amount
+payment_method
+base_fare
+service_fee_pct
+service_fee_amount
+order_number
+driver_heading
+driver_current_lat
+driver_current_lng
+estimated_arrival_minutes
+distance_to_pickup_km
+requested_at
+accepted_at
+driver_arrived_at
+trip_started_at
+completed_at
+created_at
+updated_at
+```
+
+## messages
+
+```text
+id
+order_id
+sender_type
+sender_id
+message_text
+created_at
+```
+
+Do not modify database structures casually.
+
+Backend changes must be deliberate and verified.
+
+---
+
+# 25. Fare Calculation
+
+The shared fare calculation lives in:
+
+```text
+src/lib/fareCalculator.ts
+```
+
+Do not duplicate the formula.
+
+Current formula:
+
+```text
+fare =
+  baseFare
+  + (distanceKm × perKm)
+  + (durationMinutes × perMinute)
+  + (waitingMinutes × perMinuteWaiting)
+
+fare = max(fare, minimumFare)
+```
+
+The formula is currently not fully split by vehicle type.
+
+This is a known gap.
+
+Any future fare-system change must preserve one source of truth.
+
+Client-side displayed fares and backend-validated fares must eventually use the same pricing logic.
+
+---
+
+# 26. Distance Calculation
+
+Use the shared implementation:
+
+```text
+src/lib/distance.ts
+```
+
+Never create an inline Haversine implementation.
+
+---
+
+# 27. Prompt and Audit Logging
+
+The project uses exactly TWO folders for AI development logging:
+
+```text
+prompts/
+audit_reports/
+```
+
+These are the only approved logging folders.
+
+Do not create or use:
+
+```text
+prompt/
+audit_report/
+audit_export/
+reports/
+ai_logs/
+```
+
+or any other equivalent folder.
+
+---
+
+# 28. Logging Decision Gate
+
+Before saving anything, determine what type of work was performed.
+
+## Build / Change / Fix
+
+If the user gave an instruction to:
+
+* Build something
+* Add something
+* Change something
+* Modify something
+* Fix something
+* Implement something
+* Refactor something
+
+save the exact prompt in:
+
+```text
+prompts/
+```
+
+This applies every time.
+
+---
+
+## Audit / Review
+
+Save an audit report in:
+
+```text
+audit_reports/
+```
+
+only when:
+
+1. The user explicitly requested an audit, review, investigation, verification, or check.
+
+OR
+
+2. A security-sensitive feature has just been completed and requires final verification.
+
+Examples of security-sensitive work:
+
+* Authentication
+* Authorization
+* Payments
+* Secret keys
+* RLS/security policies
+* Sensitive data access
+
+Routine feature development does NOT automatically create an audit report.
+
+---
+
+# 29. Logging Rules
+
+## Routine feature/fix
+
+Create:
+
+```text
+prompts/
+```
+
+Only.
+
+## 11. Prompt & Audit Logging
+
+There are two folders, two purposes, two different trigger conditions. They are never
+interchangeable and never share a file. **Before saving anything, answer the decision gate
+below first — do not skip straight to a filename or format.**
+
+### Decision gate — answer this before saving anything
+
+> **Was I just given an instruction to build, change, or fix something?**
+> → Save it to `prompts/`. This happens **every single time**, no exceptions, regardless of
+> what else you do afterward.
+>
+> **Am I separately investigating/verifying the app and reporting findings** (and only
+> because either (a) the user explicitly asked for an audit/review/check, or (b) I just
+> finished a security-sensitive feature — auth, payments, secret keys, RLS policies — and am
+> confirming it as a final check)?
+> → Also save a report to `audit_reports/`. This happens only on those two triggers, never
+> automatically for routine feature work.
+
+A single task can produce **one file, or two files, but never a file in the wrong folder**:
+- Routine feature/fix → one file, in `prompts/`, only.
+- Explicit audit request → one file, in `audit_reports/`, only (there may be no new prompt
+  to log if the audit itself wasn't a build instruction).
+- Security-sensitive feature just built → **two** files: the instruction in `prompts/`, and
+  a separate findings report in `audit_reports/`.
+
+If you're unsure which case applies, default to `prompts/` only — an under-logged audit is a
+minor gap; a prompt's instructions mixed into an audit file (or vice versa) breaks both logs.
+
+### 11.1 `prompts/` — every prompt, always
+
+Maintain a folder called **`prompts/`** at the project root (not `prompt/`, not any other
+name).
+
+Every prompt sent in this project — build, fix, or change — gets its own numbered file here,
+in the exact order it was sent, saved immediately after the task is completed. Never edit,
+shorten, or paraphrase the saved prompt.
+
+**File naming:** `NN_short-description_DD-MM.md`
+- `NN` — zero-padded two-digit sequence number (01, 02, 03...), continuing from the highest
+  existing number in the folder. Never reuse or renumber an earlier file.
+- `short-description` — kebab-case summary of what the prompt implements.
+- `DD-MM` — date sent, hyphens not slashes.
+
+Example: `04_build-home-screen_11-08.md`
+
+**File content — the prompt text only, nothing else:**
+```
+# Prompt 04 — Build home screen
+<the exact prompt text as sent>
+```
+
+No findings, no test results, no "what was built" summary — that content belongs only in
+`audit_reports/`, and only when Section 11's decision gate calls for one.
+
+### 11.2 `audit_reports/` — only on the two triggers above
+
+Maintain a folder called **`audit_reports/`** at the project root (not `audit_report/`, not
+`audit_export/`, not any other name).
+
+**File naming:** `NN_short-description_DD-MM.md`
+- `NN` — zero-padded two-digit sequence number (01, 02, 03...), continuing from the highest existing number in the folder. If tied to a prompt, use the corresponding prompt's number. Never reuse or renumber an earlier file.
+- `short-description` — kebab-case summary of what the audit covers.
+- `DD-MM` — date of the audit, hyphens not slashes.
+
+Example: `06_audit-driver-gps-lost_11-08.md`
+
+Do NOT use formats like `audit_03-08-26_11-58_gps-subscription-audit.md`.
+
+Tie the file number and label to the corresponding `prompts/` file if there is one. If an audit was run without a matching build prompt (a pure review request), number it sequentially within `audit_reports/` on its own using the highest sequence number.
+
+**File content — findings only, never the original prompt text:**
+what was audited, files reviewed, what works/doesn't/is missing, any security-sensitive code
+touched, known issues or follow-ups, and the manual test result (pass/fail, on which device).
+
+### Self-check before saving either file
+- Does `prompts/` contain anything that reads like a report (findings, test results, "what
+  was built")? That content is misplaced — it belongs in `audit_reports/`, or nowhere at all
+  if no audit was triggered.
+- Does `audit_reports/` contain anything that reads like an instruction ("build X," "fix Y")?
+  That content is misplaced — it belongs in `prompts/`.
+- Was a report written for a routine feature with no explicit audit request and nothing
+  security-sensitive involved? It shouldn't exist — flag it to the user rather than leaving
+  it in place.
+
+# 33. Logging Self-Check
+
+Before saving a prompt:
+
+Ask:
+
+> Is this the exact instruction that was given?
+
+If yes, save it to `prompts/`.
+
+Before saving an audit:
+
+Ask:
+
+> Is this a report of findings from an actual audit/review?
+
+If yes, save it to `audit_reports/`.
+
+Never place findings inside `prompts/`.
+
+Never place build instructions inside `audit_reports/`.
+
+There must be no `audit_export/` folder.
+
+---
+
+Usage:
+
+```tsx
+<BackButton />
+```
+
+or:
+
+```tsx
+<BackButton onPress={customFunction} />
+```
+
+Never:
+
+* Create another back-arrow component
+* Implement a back arrow inline
+* Use `chevron-back`
+* Add an unnecessary shadow wrapper
+* Create a different back-button style for another screen
+
+---
+# 37. Decision Making
+
+If the request is unclear:
+
+Ask before implementing.
+
+If an existing architecture already solves the problem:
+
+Reuse it.
+
+If a new library would simplify the implementation:
+
+Explain:
+
+1. Why it is needed.
+2. What it would replace or improve.
+3. What impact it has.
+
+Then ask for permission before installing it.
+
+Never install a new dependency without explicit approval.
+
+---
+
+# 39. Protected Customer/Driver Ride Lifecycle
+
+The verified ride lifecycle is:
+
+```text
+Customer Request
 ↓
 Driver Receives Request
 ↓
@@ -773,99 +1280,34 @@ Trip Navigation
 ↓
 Complete Trip
 ↓
-Passenger Rating
+Customer Rating
 ↓
 Driver Rating
+```
 
-This workflow is considered LOCKED.
+This workflow is considered protected.
 
----
-
-## 3. Navigation Engine Ownership
-
-Navigation ownership belongs ONLY to the Navigation Engine.
-
-Screens must never own:
-
-- GPS
-- Route
-- Camera
-- Polyline
-- ETA
-- Distance
-- Navigation State
-- Camera State
-
-Screens may only consume `NavigationStore` through reusable hooks and
-components.
+Any modification that affects this workflow must be deliberate.
 
 ---
 
-## 4. Regression Protection Rules
+# 40. Regression Protection
 
-Before modifying any protected feature, every AI agent must:
+Before modifying a protected system:
 
-- Determine whether the requested change affects a protected system.
-- Explain any regression risk before making changes.
-- Modify the smallest amount of code necessary.
-- Extend existing architecture instead of replacing it.
-- Preserve all existing working behavior.
+1. Identify the protected feature.
+2. Explain potential regression risks.
+3. Modify the smallest possible amount of code.
+4. Reuse the existing architecture.
+5. Verify the existing workflow after the change.
 
----
+Do not:
 
-## 5. Stable Before New
-
-If a feature is already working correctly:
-
-- Do NOT redesign it.
-- Do NOT refactor it.
-- Do NOT migrate it.
-- Do NOT replace it.
-- Do NOT optimize it.
-
-Unless the task explicitly requires changes to that feature.
+* Replace working systems unnecessarily
+* Create duplicate state
+* Create duplicate GPS ownership
+* Create duplicate navigation engines
+* Create duplicate camera controllers
+* Create duplicate route systems
 
 ---
-
-## 6. Future Development Rule
-
-Every future implementation must:
-
-1. Read AGENTS.md first.
-2. Identify protected systems that could be affected.
-3. Preserve all protected functionality.
-4. Build only on top of the existing reusable architecture.
-5. Never introduce duplicate ownership or duplicate state.
-6. Report any regression risk before making changes.
-
----
-
-## 7. Regression Checklist
-
-Before any implementation touching protected systems, confirm:
-
-- Existing feature behavior preserved.
-- No duplicate state introduced.
-- No duplicate GPS ownership.
-- No duplicate camera ownership.
-- No duplicate route ownership.
-- Navigation Engine remains the single source of truth.
-- TypeScript passes.
-- Existing ride lifecycle still works end-to-end.
-- Existing reusable components remain reusable.
-- No regressions introduced.
-
----
-
-## 8. Architecture Preservation Rule
-
-The project's architecture is now mature.
-
-Future work must extend the existing Navigation Engine rather than
-replacing or bypassing it.
-
-Reusable components must always be preferred over screen-specific
-implementations.
-
-No future prompt should move business logic, navigation logic, camera
-logic, GPS logic, or routing logic back into individual screens.

@@ -3,6 +3,13 @@
  */
 
 // User & Roles
+// Literal values intentionally kept as 'passenger'/'driver' (not renamed to
+// 'customer'/'driver') -- this mirrors customers.account_type's DB enum
+// value ('passenger'), so changing it here without a backend migration would
+// desync app role state from the persisted account type. Domain-facing code
+// should say "Customer", but this specific literal is a documented legacy
+// exception. See AGENTS.md's Naming section and Phase 10F's terminology
+// report in audit_export/.
 export type UserRole = 'passenger' | 'driver';
 
 // Matches the customers_account_status_check DB constraint.
@@ -178,8 +185,8 @@ export interface IncomingRequest {
   // Customer identity isn't visible pre-acceptance (RLS only grants a driver
   // read access to the customer of an order once driver_id is set to them).
   // Placeholder until then; patched with the real name/rating/id after accept.
-  passengerName: string;
-  passengerRating: number;
+  customerName: string;
+  customerRating: number;
   customerId?: string;
   expiresAt: Date;
 }
@@ -188,7 +195,7 @@ export interface IncomingRequest {
 // trip-summary screen, then cleared when the driver returns home.
 export interface TripSummary {
   tripId: string;
-  passengerName: string;
+  customerName: string;
   customerId: string;
   distance: number; // km
   duration: number; // minutes
@@ -202,7 +209,7 @@ export interface TripSummary {
 // server computes fare_amount/service_fee_amount/driver_earnings from
 // distance/waitingDuration and its own server-stamped timestamps.
 export interface TripCompletionInput {
-  passengerName: string;
+  customerName: string;
   distance: number; // actual distance driven, km
   duration: number; // minutes, local display only -- not sent to the server
   waitingDuration: number; // minutes

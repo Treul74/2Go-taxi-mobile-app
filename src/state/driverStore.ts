@@ -86,7 +86,7 @@ interface DriverState {
   completeTrip: (receiptData: TripCompletionInput) => Promise<boolean>;
   finishTrip: () => void;
   cancelTrip: () => void;
-  ratePassenger: (
+  rateCustomer: (
     orderId: string,
     customerId: string,
     rating: number,
@@ -141,8 +141,8 @@ function toIncomingRequest(
       ? calculateDistanceKm(currentLocation.latitude, currentLocation.longitude, pickupLat, pickupLng)
       : 0,
     // Customer identity isn't visible pre-acceptance — see IncomingRequest.
-    passengerName: 'New Passenger',
-    passengerRating: 0,
+    customerName: 'New Customer',
+    customerRating: 0,
     expiresAt: new Date(Date.now() + 30000), // 30 seconds to accept
   };
 }
@@ -326,8 +326,8 @@ export const useDriverStore = create<DriverState>((set, get) => ({
       set({
         currentTrip: {
           ...current.currentTrip,
-          passengerName: customer.name,
-          passengerRating: customer.rating,
+          customerName: customer.name,
+          customerRating: customer.rating,
           customerId: customer.id,
         },
       });
@@ -453,7 +453,7 @@ export const useDriverStore = create<DriverState>((set, get) => ({
       tripStatus: 'completed',
       lastTripSummary: {
         tripId: currentTrip.id,
-        passengerName: receiptData.passengerName,
+        customerName: receiptData.customerName,
         customerId: currentTrip.customerId ?? '',
         distance: receiptData.distance,
         duration: receiptData.duration,
@@ -477,12 +477,12 @@ export const useDriverStore = create<DriverState>((set, get) => ({
     });
   },
 
-  // Records the driver's optional star rating of the passenger (1-5,
+  // Records the driver's optional star rating of the customer (1-5,
   // skippable) and persists it to InsForge (rated_by='driver') -- a trigger
   // recomputes the customer's rating average. driverId is the driver's own
   // account id (not the trip/order id in orderId), matching the ratings
   // table's driver_id FK.
-  ratePassenger: async (orderId, customerId, rating, categories) => {
+  rateCustomer: async (orderId, customerId, rating, categories) => {
     const driverId = useUserStore.getState().driverAccount?.id;
     if (!driverId) {
       console.error('Failed to submit driver rating: no driver account id.');

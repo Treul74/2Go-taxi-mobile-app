@@ -14,7 +14,7 @@ export interface UseAnimatedMarkerWebOptions {
   coordinate: LatLng | null;
   /** Latest heading in degrees (0 = north), or `null`/omitted for markers that never rotate. */
   heading?: number | null;
-  /** Timing profile — whether this marker kind tracks heading at all, and how long each timeline takes. See `MarkerAnimator`'s `DRIVER_MARKER_PROFILE`/`PASSENGER_MARKER_PROFILE`/`NAVIGATION_ARROW_PROFILE`. */
+  /** Timing profile — whether this marker kind tracks heading at all, and how long each timeline takes. See `MarkerAnimator`'s `DRIVER_MARKER_PROFILE`/`CUSTOMER_MARKER_PROFILE`/`NAVIGATION_ARROW_PROFILE`. */
   profile: MarkerProfile;
 }
 

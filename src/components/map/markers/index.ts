@@ -17,3 +17,5 @@ export { USER_LOCATION_COLOR, UserLocationMarker } from './UserLocationMarker';
 export { SearchPulseMarker } from './SearchPulseMarker';
 export { ArrivalTimeMarker } from './ArrivalTimeMarker';
 export type { ArrivalTimeMarkerProps } from './ArrivalTimeMarker';
+export { DriverStaticPositionMarker } from './DriverStaticPositionMarker';
+export type { DriverStaticPositionMarkerProps } from './DriverStaticPositionMarker';

@@ -14,7 +14,7 @@ import { Pressable, ScrollView, Text, View } from 'react-native';
  * trip-summary's handleDone, so the summary data is still available here.
  */
 export default function DriverRatingScreen() {
-  const { lastTripSummary, finishTrip, ratePassenger } = useDriverStore();
+  const { lastTripSummary, finishTrip, rateCustomer } = useDriverStore();
   const navigation = useNavigation();
 
   const [overallRating, setOverallRating] = useState(0);
@@ -30,11 +30,11 @@ export default function DriverRatingScreen() {
 
   if (!lastTripSummary) return null;
 
-  const passengerName = lastTripSummary?.passengerName ?? 'Passenger';
+  const customerName = lastTripSummary?.customerName ?? 'Customer';
 
   const handleSubmit = async () => {
     if (lastTripSummary && overallRating > 0) {
-      await ratePassenger(lastTripSummary.tripId, lastTripSummary.customerId, overallRating, {
+      await rateCustomer(lastTripSummary.tripId, lastTripSummary.customerId, overallRating, {
         punctuality,
         communication,
         payment,
@@ -51,8 +51,8 @@ export default function DriverRatingScreen() {
     router.replace('/(tabs)');
   };
 
-  const initials = lastTripSummary?.passengerName
-    ? lastTripSummary.passengerName
+  const initials = lastTripSummary?.customerName
+    ? lastTripSummary.customerName
         .split(' ')
         .map((part) => part[0])
         .slice(0, 2)
@@ -82,9 +82,9 @@ export default function DriverRatingScreen() {
             <Ionicons name="location" size={12} color="#FFFFFF" />
           </View>
         </View>
-        <Text className="text-primary font-bold text-xl mt-3">{passengerName}</Text>
+        <Text className="text-primary font-bold text-xl mt-3">{customerName}</Text>
         <Text className="text-secondary text-sm mt-1">
-          How was your ride with {passengerName} today?
+          How was your ride with {customerName} today?
         </Text>
       </View>
 

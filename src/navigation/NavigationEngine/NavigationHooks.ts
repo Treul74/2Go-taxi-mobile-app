@@ -67,13 +67,9 @@ export function useGPSState(): GPSState {
 
 // --- Route ---------------------------------------------------------------
 
-export function useActiveRoute(): RouteData | null {
-  return useNavigationStore((s) => s.route);
-}
-
-export function useRouteProgress(): RouteProgress | null {
-  return useNavigationStore((s) => s.progress);
-}
+export const useActiveRoute = () => useNavigationStore((state) => state.route);
+export const useOverviewRoute = () => useNavigationStore((state) => state.overviewRoute);
+export const useRouteProgress = () => useNavigationStore((state) => state.progress);
 
 export function useCurrentStep(): RouteStep | null {
   return useNavigationStore((s) => s.currentStep);

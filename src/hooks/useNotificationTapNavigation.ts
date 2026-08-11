@@ -28,7 +28,7 @@ function resolveNotificationRoute(): Href {
     return '/(tabs)';
   }
 
-  // PassengerHome on the tabs' home screen shows the ActiveTripCard.
+  // CustomerHome on the tabs' home screen shows the ActiveTripCard.
   if (useRideStore.getState().activeTrip) return '/(tabs)';
   return '/discover';
 }

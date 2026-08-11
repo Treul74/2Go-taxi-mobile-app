@@ -52,8 +52,8 @@
  * cheap price for that independence.
  *
  * ELIMINATED IN THIS PASS: `src/hooks/useCurrentLocation.ts`,
- * `src/features/passenger/components/MapPickerModal.native.tsx`,
- * `src/features/passenger/PassengerHome.tsx`,
+ * `src/features/customer/components/MapPickerModal.native.tsx`,
+ * `src/features/customer/CustomerHome.tsx`,
  * `src/features/driver/DriverDashboard.tsx`, `app/(driver)/navigation.tsx`,
  * `app/(driver)/trip.tsx`, and `app/(tabs)/navigate.tsx` all called
  * `Location.watchPositionAsync`/`getCurrentPositionAsync` directly. All 7 now
@@ -211,7 +211,7 @@ interface ProfileOptions {
 
 /**
  * Named accuracy/power tradeoffs (matches `GPSProfile` in types.ts). Tuned
- * per intended use: a Transporter actively navigating needs frequent,
+ * per intended use: a Driver actively navigating needs frequent,
  * high-accuracy fixes; a Customer watching a driver marker on a map needs
  * far less; a background-tracked trip should conserve battery.
  *
@@ -228,7 +228,7 @@ const PROFILE_OPTIONS: Record<GPSProfile, ProfileOptions> = {
     distanceIntervalMeters: 1,
     maxAcceptableAccuracyMeters: 30,
   },
-  passengerBalanced: {
+  customerBalanced: {
     accuracy: Location.Accuracy.Balanced,
     timeIntervalMs: 4000,
     distanceIntervalMeters: 10,
@@ -266,7 +266,7 @@ export type GPSTrackingScenario = 'planning' | 'driverNavigation' | 'tripComplet
 const SCENARIO_PROFILES: Record<GPSTrackingScenario, GPSProfile | null> = {
   planning: 'planning',
   driverNavigation: 'driverBestNavigation',
-  tripCompleted: 'passengerBalanced',
+  tripCompleted: 'customerBalanced',
   offline: null,
 };
 
@@ -503,7 +503,7 @@ function getAverageAccuracy(): number | null {
 function processRawFix(location: Location.LocationObject): GPSFix | null {
   const { latitude, longitude, accuracy, heading, speed } = location.coords;
   const { timestamp } = location;
-  const profile = activeProfile ? PROFILE_OPTIONS[activeProfile] : PROFILE_OPTIONS.passengerBalanced;
+  const profile = activeProfile ? PROFILE_OPTIONS[activeProfile] : PROFILE_OPTIONS.customerBalanced;
   const ageMs = Math.max(0, Date.now() - timestamp);
 
   let impliedSpeedMps: number | null = null;
@@ -921,8 +921,8 @@ async function performRestart(): Promise<void> {
 
 /**
  * Switches the active profile without changing tracking mode — e.g. a
- * Transporter's app moving from `driverBestNavigation` while actively
- * navigating to `passengerBalanced`-equivalent power saving once a trip
+ * Driver's app moving from `driverBestNavigation` while actively
+ * navigating to `customerBalanced`-equivalent power saving once a trip
  * ends but the driver stays online. No-ops if `profile` is already active.
  * Throws if nothing is currently tracking (there's no mode to restart into).
  */
@@ -978,7 +978,7 @@ export function release(): void {
  * `start()`/`acquire()` tracking is active elsewhere. Falls back to the last
  * known device fix if a fresh read fails (e.g. `Accuracy.High` unsatisfied).
  */
-export async function getCurrentFix(profile: GPSProfile = 'passengerBalanced'): Promise<GPSFix | null> {
+export async function getCurrentFix(profile: GPSProfile = 'customerBalanced'): Promise<GPSFix | null> {
   await requestPermissions('foreground');
   const options = PROFILE_OPTIONS[profile];
 

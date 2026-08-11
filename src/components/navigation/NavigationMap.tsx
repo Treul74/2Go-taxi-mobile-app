@@ -15,10 +15,12 @@ import {
   useDriverLocation,
   useHeading,
   useNavigationMode,
+  useOverviewRoute,
   usePickupDestination,
 } from '@/navigation/NavigationEngine/NavigationHooks';
 import { NavigationMode } from '@/navigation/NavigationEngine/NavigationModes';
 import type { LatLng } from '@/navigation/NavigationEngine/types';
+import { useUserStore } from '@/state';
 import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import { StyleSheet, View, type LayoutChangeEvent } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -64,17 +66,32 @@ function toMapLocation(point: LatLng): NonNullable<MapProps['pickup']> {
  * `toMapLocation`, the `routeSteps` mapping below) — no decisions are made
  * here that the engine hasn't already made.
  */
+/**
+ * `Map`'s own exposed ref shape (`Map.native.tsx`'s `useImperativeHandle`) —
+ * `animateCamera(camera, duration?: number)`, a bare duration in ms, NOT
+ * `CameraControllerMapHandle`'s `{ duration }` options object. The two
+ * types look similar but aren't the same contract; keeping this as its own
+ * local type (instead of reusing `CameraControllerMapHandle` here, which a
+ * past pass did) is what makes the adapter below's `options.duration`
+ * unwrap type-check honestly instead of silently asserting past a mismatch.
+ */
+interface MapCameraRef {
+  animateCamera?: (camera: Parameters<CameraControllerMapHandle['animateCamera']>[0], duration?: number) => void;
+}
+
 export function NavigationMap({ mapType, children }: NavigationMapProps) {
-  const mapRef = useRef<{ animateCamera?: CameraControllerMapHandle['animateCamera'] } | null>(null);
+  const mapRef = useRef<MapCameraRef | null>(null);
 
   const mode = useNavigationMode();
   const { pickup, destination } = usePickupDestination();
   const driverLocation = useDriverLocation();
   const heading = useHeading();
   const route = useActiveRoute();
+  const overviewRoute = useOverviewRoute();
   const navigation = useNavigation();
   const cameraState = useCameraState();
   const safeAreaInsets = useSafeAreaInsets();
+  const role = useUserStore((s) => s.role);
 
   useEffect(() => {
     attachMap({
@@ -83,8 +100,19 @@ export function NavigationMap({ mapType, children }: NavigationMapProps) {
       // CameraController's calls are a safe no-op on web instead of a
       // crash, leaving `Map`'s own web camera behaviour as today's
       // fallback rather than this component requiring a web rewrite.
+      //
+      // `options.duration` is unwrapped here (Phase 9D camera runtime
+      // cleanup): `Map`'s exposed `animateCamera` takes a bare
+      // `duration?: number`, not CameraController's `{ duration }` options
+      // object — passing `options` through as-is silently double-wrapped it
+      // (`Map.native.tsx` would build `{ duration: options }` for the real
+      // native call), so every CameraController-driven animation duration
+      // was reaching the map wrong regardless of what CameraController.ts
+      // itself computed. `app/(tabs)/navigate.tsx` was never affected (it
+      // calls `Map`'s ref directly with a bare number already) — this fix
+      // is scoped to this adapter, not `Map.native.tsx`'s contract.
       animateCamera: (camera, options) => {
-        mapRef.current?.animateCamera?.(camera, options);
+        mapRef.current?.animateCamera?.(camera, options.duration);
       },
     });
     return () => detachMap();
@@ -168,8 +196,10 @@ export function NavigationMap({ mapType, children }: NavigationMapProps) {
         driverHeading={heading ?? 0}
         showRoute={!!route}
         routeCoordinates={route?.path ?? []}
+        overviewRouteCoordinates={overviewRoute?.path ?? []}
         routeSteps={routeSteps}
         navigationArrowMode={navigationArrowMode}
+        isDriverOwnMap={role === 'driver'}
         mapType={mapType}
         autoFollowDriver={false}
         disableInternalCamera

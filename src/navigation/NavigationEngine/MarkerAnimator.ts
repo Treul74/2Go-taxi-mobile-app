@@ -1,5 +1,5 @@
 /**
- * MarkerAnimator — pure math for driver/passenger/navigation-arrow marker
+ * MarkerAnimator — pure math for driver/customer/navigation-arrow marker
  * animation (Bible's "Marker System": "Every marker uses useAnimatedMarker().
  * ... All use identical interpolation.").
  *
@@ -9,7 +9,7 @@
  * `src/hooks/useAnimatedMarker.ts` + `src/lib/mapAnimation.ts` already
  * implement every responsibility this file is asked for, and are already
  * wired into three live components (`AnimatedVehicleMarker` — driver,
- * `AnimatedUserLocation` — passenger, `NavigationArrowMarker` — navigation
+ * `AnimatedUserLocation` — customer, `NavigationArrowMarker` — navigation
  * arrow), all rendering on real screens today via Reanimated worklets
  * (true UI-thread, 60fps). This file does NOT replace, wrap, or refactor
  * that system — no UI changes, per this task's own instruction, and
@@ -58,7 +58,7 @@ import type { LatLng } from './types';
 /** A marker's position/heading at a moment in time — the animatable unit this file operates on. */
 export interface MarkerAnimationState {
   position: LatLng;
-  /** Degrees 0-360, or `null` for markers that never rotate (e.g. the passenger dot) — mirrors `useAnimatedMarker`'s optional `heading` prop. */
+  /** Degrees 0-360, or `null` for markers that never rotate (e.g. the customer dot) — mirrors `useAnimatedMarker`'s optional `heading` prop. */
   heading: number | null;
   timestampMs: number;
 }
@@ -70,7 +70,7 @@ export interface MarkerAnimationState {
  * coordinate while its rotation settles on its own schedule, or vice versa.
  */
 export interface MarkerProfile {
-  /** Whether this marker kind rotates to a heading at all. `false` for the passenger dot, which only ever moves. */
+  /** Whether this marker kind rotates to a heading at all. `false` for the customer dot, which only ever moves. */
   tracksHeading: boolean;
   /** Duration (ms) of the position tween. */
   positionDurationMs: number;
@@ -102,7 +102,7 @@ export interface MarkerFrame {
 }
 
 // ---------------------------------------------------------------------------
-// Marker profiles — the three named responsibilities (driver, passenger,
+// Marker profiles — the three named responsibilities (driver, customer,
 // navigation arrow), expressed as data rather than three near-identical
 // functions. Timings are `@/lib/mapAnimation`'s existing, already-tuned
 // `MARKER_ANIMATION` constants — the same numbers `useAnimatedMarker`
@@ -116,8 +116,8 @@ export const DRIVER_MARKER_PROFILE: MarkerProfile = {
   headingDurationMs: MARKER_ANIMATION.rotationDurationMs,
 };
 
-/** Passenger/customer location dot. Position only — matches `AnimatedUserLocation`, which never passes a `heading`. */
-export const PASSENGER_MARKER_PROFILE: MarkerProfile = {
+/** Customer location dot. Position only — matches `AnimatedUserLocation`, which never passes a `heading`. */
+export const CUSTOMER_MARKER_PROFILE: MarkerProfile = {
   tracksHeading: false,
   positionDurationMs: MARKER_ANIMATION.positionDurationMs,
   headingDurationMs: 0,

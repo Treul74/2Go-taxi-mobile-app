@@ -2,7 +2,12 @@ import { USER_LOCATION_COLOR } from '@/components/map/markers';
 import { Button, IconButton, Input } from '@/components/ui';
 import { useCurrentLocation } from '@/hooks/useCurrentLocation';
 import { formatDisplayAddress } from '@/lib';
+import { useNavigation } from '@/navigation/NavigationEngine/hooks/useNavigation';
+import { NavigationMode } from '@/navigation/NavigationEngine/NavigationModes';
+import { useNavigationStore } from '@/navigation/NavigationEngine/NavigationStore';
 import { fetchRoute } from '@/navigation/NavigationEngine/RouteEngine';
+import { safeTransition } from '@/navigation/NavigationEngine/safeTransition';
+import type { LatLng } from '@/navigation/NavigationEngine/types';
 import { useRideStore, useUserStore } from '@/state';
 import type { Location, PaymentMethod, SavedAddress } from '@/types';
 import { Ionicons } from '@expo/vector-icons';
@@ -38,6 +43,11 @@ export function RidePlannerSheet({ onRequestRide, isMapDragging = false }: RideP
 
   // Get current location
   const { location: currentLocation, loading: locationLoading, error: locationError, hasPermission, province } = useCurrentLocation();
+
+  // Navigation Engine — drives PREVIEW mode's camera (AutoFit) alongside
+  // this sheet's own pickup/destination selection. See the route-fetch
+  // effect below for how it's kept in sync.
+  const navigation = useNavigation();
 
   // Modals state
   const [showPaymentModal, setShowPaymentModal] = useState(false);
@@ -134,9 +144,18 @@ export function RidePlannerSheet({ onRequestRide, isMapDragging = false }: RideP
 
   // Fetch route when both pickup and destination are set. Routing goes
   // entirely through RouteEngine — the only file allowed to fetch/cache
-  // Directions (src/navigation/NavigationEngine/RouteEngine.ts).
+  // Directions (src/navigation/NavigationEngine/RouteEngine.ts). The one
+  // fetch result is published to two consumers: rideStore (unchanged —
+  // still backs calculateVehicleFares()/the map polyline on CustomerHome)
+  // and NavigationStore.setRoute() (new — the engine's own route data,
+  // consumed by CameraController's PREVIEW auto-fit and by whatever HUD a
+  // future pass mounts). Same "one fetch, two stores" pattern already used
+  // by app/(driver)/trip.tsx bridging NavigationStore into driverStore.
   useEffect(() => {
     if (pickup && destination) {
+      const pickupLatLng: LatLng = { latitude: pickup.latitude, longitude: pickup.longitude };
+      const destinationLatLng: LatLng = { latitude: destination.latitude, longitude: destination.longitude };
+
       fetchRoute(pickup, destination)
         .then(route => {
           if (route) {
@@ -147,16 +166,41 @@ export function RidePlannerSheet({ onRequestRide, isMapDragging = false }: RideP
               route.distanceMeters,
               route.durationSeconds
             );
+            useNavigationStore.getState().setRoute(route);
           }
         })
         .catch(err => {
           console.error('Failed to get route:', err);
           clearRoute();
+          useNavigationStore.getState().setRoute(null);
         });
+
+      // Drives this device's local NavigationStore mode machine into
+      // PREVIEW (Bible: "Customer selects pickup and destination ...
+      // automatically fit"). Once already in PREVIEW/MATCHING, only the
+      // coordinates are refreshed (e.g. a live-tracked pickup drifting) —
+      // preview() itself is a one-time IDLE -> PREVIEW transition, calling
+      // it again would be illegal (see NavigationModes.ts's transition
+      // table), so a plain state patch is used instead of re-dispatching it.
+      const mode = useNavigationStore.getState().mode;
+      if (mode === NavigationMode.IDLE) {
+        safeTransition(() => navigation.preview(pickupLatLng, destinationLatLng));
+      } else if (mode === NavigationMode.PREVIEW || mode === NavigationMode.MATCHING) {
+        useNavigationStore.setState({ pickup: pickupLatLng, destination: destinationLatLng });
+      }
     } else {
       clearRoute();
+      useNavigationStore.getState().setRoute(null);
+
+      // Pickup or destination was cleared — back to "selecting locations"
+      // (Bible: IDLE). Only unwinds from PREVIEW: MATCHING+ means a booking
+      // is already in flight and is CustomerHome's responsibility, not
+      // this sheet's (it unmounts once status leaves idle/planning anyway).
+      if (useNavigationStore.getState().mode === NavigationMode.PREVIEW) {
+        safeTransition(() => navigation.cancel());
+      }
     }
-  }, [pickup, destination, setRouteData, clearRoute]);
+  }, [pickup, destination, setRouteData, clearRoute, navigation]);
 
   // Recalculate real per-vehicle fares/ETAs whenever both pickup and
   // destination are set, replacing the mock vehicleOptions values.

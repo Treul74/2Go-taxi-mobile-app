@@ -2,7 +2,7 @@
 // here pulls in expo-notifications, which warns at import time on Android/Expo Go.
 import '@/lib/suppressExpoGoWarnings';
 
-import { FareReceiptModal } from '@/features/passenger/components';
+import { FareReceiptModal } from '@/features/customer/components';
 import { useNotificationTapNavigation } from '@/hooks/useNotificationTapNavigation';
 import { insforge } from '@/lib/insforge';
 import { registerPushToken, requestNotificationPermissions } from '@/lib/notifications';
@@ -195,15 +195,16 @@ export default function RootLayout() {
   // Every fresh launch of an already-logged-in session must land on a fixed
   // screen, not wherever navigation history last left off (e.g. the tabs'
   // Home screen) — this fires once per app start, right as the protected
-  // stack becomes reachable, and never again this session. Passengers land
+  // stack becomes reachable, and never again this session. Customers land
   // on the 'Where to?' discover screen; a restored driver session (see
   // userStore.loadAccounts) lands directly on the driver tabs instead.
   const hasLandedOnLaunch = useRef(false);
   useEffect(() => {
     if (!appReady || !authed || hasLandedOnLaunch.current) return;
     hasLandedOnLaunch.current = true;
-    const role = useUserStore.getState().role;
-    router.replace(role === 'driver' ? '/(tabs)' : '/discover');
+    const { role, driverAccount } = useUserStore.getState();
+    const canAccessDriverMode = role === 'driver' && driverAccount?.accountStatus === 'approved';
+    router.replace(canAccessDriverMode ? '/(tabs)' : '/discover');
   }, [appReady, authed]);
 
   // Push notification setup — permission prompt on first open after login,
@@ -274,7 +275,7 @@ export default function RootLayout() {
                 'discover' is declared first so it's the default landing
                 screen for this group (React Navigation uses the first
                 Stack.Screen as the initial route when none is specified) —
-                passengers see it before the map-based (tabs) home screen. */}
+                customers see it before the map-based (tabs) home screen. */}
             <Stack.Protected guard={authed}>
               <Stack.Screen name="discover" options={{ headerShown: false }} />
               <Stack.Screen name="(tabs)" options={{ headerShown: false }} />

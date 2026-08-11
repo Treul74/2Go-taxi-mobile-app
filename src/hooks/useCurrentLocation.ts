@@ -85,7 +85,7 @@ export function useCurrentLocation() {
           applyFix(existingFix);
         }
 
-        await GPSManager.acquire('foreground', 'passengerBalanced');
+        await GPSManager.acquire('foreground', 'customerBalanced');
         if (!isMounted) return;
         setPermissionStatus(Location.PermissionStatus.GRANTED);
       } catch (err) {
@@ -120,7 +120,7 @@ export function useCurrentLocation() {
     setError(null);
 
     try {
-      const fix = await GPSManager.getCurrentFix('passengerBalanced');
+      const fix = await GPSManager.getCurrentFix('customerBalanced');
       if (!fix) throw new Error('Location unavailable');
 
       let formattedAddress = 'Current Location';

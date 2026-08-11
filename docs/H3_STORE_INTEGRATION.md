@@ -1,11 +1,11 @@
 # H3 Zustand Store Integration
 
 ## Overview
-The Zustand stores have been extended to support H3 hexagon spatial indexing for both passengers and drivers.
+The Zustand stores have been extended to support H3 hexagon spatial indexing for both customers and drivers.
 
 ## Changes Made
 
-### 1. **rideStore.ts** - Passenger Location Tracking
+### 1. **rideStore.ts** - Customer Location Tracking
 
 #### New State Fields
 ```typescript
@@ -13,22 +13,22 @@ interface RideState {
   // ... existing fields
   
   // H3 Spatial Indexing
-  passengerHex9: string | null; // Current passenger location hex
+  customerHex9: string | null; // Current customer location hex
 }
 ```
 
 #### Updated Actions
-- **`setPickup(location, manual?)`** - Now automatically calculates and stores `passengerHex9`
-- **`resetRide()`** - Resets `passengerHex9` to null
+- **`setPickup(location, manual?)`** - Now automatically calculates and stores `customerHex9`
+- **`resetRide()`** - Resets `customerHex9` to null
 
 #### Implementation
 ```typescript
 setPickup: (location, manual = false) => {
   // Calculate hex9 if location is provided
-  const passengerHex9 = location 
+  const customerHex9 = location 
     ? getHex9(location.latitude, location.longitude) 
     : null;
-  set({ pickup: location, isPickupManual: manual, passengerHex9 });
+  set({ pickup: location, isPickupManual: manual, customerHex9 });
 }
 ```
 
@@ -74,20 +74,20 @@ pickup: {
 
 ## Usage Examples
 
-### Example 1: Track Passenger Location
+### Example 1: Track Customer Location
 ```typescript
 import { useRideStore } from '@/state';
 
-function PassengerComponent() {
-  const { pickup, passengerHex9, setPickup } = useRideStore();
+function CustomerComponent() {
+  const { pickup, customerHex9, setPickup } = useRideStore();
   
   // When user selects pickup location
   const handleLocationSelect = (location) => {
     setPickup(location); // hex9 is automatically calculated
   };
   
-  // Access passenger hex9
-  console.log('Passenger is in hexagon:', passengerHex9);
+  // Access customer hex9
+  console.log('Customer is in hexagon:', customerHex9);
 }
 ```
 
@@ -118,12 +118,12 @@ import { useRideStore } from '@/state/rideStore';
 import { getNearbyHexes } from '@/core/spatialEngine';
 
 function findNearbyDrivers(allDrivers) {
-  const { passengerHex9 } = useRideStore();
+  const { customerHex9 } = useRideStore();
   
-  if (!passengerHex9) return [];
+  if (!customerHex9) return [];
   
   // Get hexagons within 2km radius
-  const searchArea = getNearbyHexes(passengerHex9, 2);
+  const searchArea = getNearbyHexes(customerHex9, 2);
   
   // Filter drivers in those hexagons
   const nearbyDrivers = allDrivers.filter(driver => 
@@ -134,19 +134,19 @@ function findNearbyDrivers(allDrivers) {
 }
 ```
 
-### Example 4: Check if Driver and Passenger are in Same Hexagon
+### Example 4: Check if Driver and Customer are in Same Hexagon
 ```typescript
 import { useRideStore } from '@/state/rideStore';
 import { useDriverStore } from '@/state/driverStore';
 
 function MatchingComponent() {
-  const { passengerHex9 } = useRideStore();
+  const { customerHex9 } = useRideStore();
   const { driverHex9 } = useDriverStore();
   
-  const isInSameHex = passengerHex9 === driverHex9;
+  const isInSameHex = customerHex9 === driverHex9;
   
   if (isInSameHex) {
-    console.log('Driver and passenger are within 170m of each other!');
+    console.log('Driver and customer are within 170m of each other!');
   }
 }
 ```
@@ -216,18 +216,18 @@ function DriverLocationTracker() {
 ### Implement Driver Matching Algorithm
 ```typescript
 // Example: Find closest driver
-function findClosestDriver(passengerHex9: string, drivers: Driver[]) {
+function findClosestDriver(customerHex9: string, drivers: Driver[]) {
   // 1. Check same hexagon (170m)
-  let match = drivers.find(d => d.driverHex9 === passengerHex9);
+  let match = drivers.find(d => d.driverHex9 === customerHex9);
   if (match) return match;
   
   // 2. Check 1-ring neighbors (6 hexagons)
-  const ring1 = getNearbyHexes(passengerHex9, 1);
+  const ring1 = getNearbyHexes(customerHex9, 1);
   match = drivers.find(d => d.driverHex9 && ring1.includes(d.driverHex9));
   if (match) return match;
   
   // 3. Check 2-ring neighbors (19 hexagons)
-  const ring2 = getNearbyHexes(passengerHex9, 2);
+  const ring2 = getNearbyHexes(customerHex9, 2);
   match = drivers.find(d => d.driverHex9 && ring2.includes(d.driverHex9));
   
   return match || null;
@@ -238,7 +238,7 @@ function findClosestDriver(passengerHex9: string, drivers: Driver[]) {
 ```typescript
 // Send hex9 to backend for matching
 async function requestRide() {
-  const { pickup, passengerHex9 } = useRideStore.getState();
+  const { pickup, customerHex9 } = useRideStore.getState();
   
   const response = await fetch('/api/rides/request', {
     method: 'POST',
@@ -246,7 +246,7 @@ async function requestRide() {
       pickup: {
         latitude: pickup.latitude,
         longitude: pickup.longitude,
-        hex9: passengerHex9, // ← Send hex for server-side matching
+        hex9: customerHex9, // ← Send hex for server-side matching
       },
     }),
   });

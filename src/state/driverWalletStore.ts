@@ -6,7 +6,7 @@ import { createJSONStorage, persist } from 'zustand/middleware';
 export interface TripReceipt {
     id: string;
     tripId: string;
-    passengerName: string;
+    customerName: string;
     pickupAddress: string;
     destinationAddress: string;
     distance: number;
@@ -103,13 +103,13 @@ export const useDriverWalletStore = create<WalletState>()(
 
                     if (tx.type === 'trip_earning') {
                         if (createdAt >= startOfToday) totalTripsToday += 1;
-                        // wallet_transactions has no trip detail (passenger, addresses,
+                        // wallet_transactions has no trip detail (customer, addresses,
                         // fare breakdown) -- only amount/timestamp, which is all
                         // WalletScreen's earnings calendar actually reads.
                         transactions.push({
                             id: tx.id,
                             tripId: tx.order_id ?? tx.id,
-                            passengerName: '',
+                            customerName: '',
                             pickupAddress: '',
                             destinationAddress: '',
                             distance: 0,

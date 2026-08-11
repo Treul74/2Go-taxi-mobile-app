@@ -218,7 +218,7 @@ Camera zooms
 
 slightly closer.
 
-Passenger pin becomes focus.
+Customer pin becomes focus.
 
 Slide
 
@@ -643,7 +643,7 @@ useAnimatedMarker()
 
 Vehicle
 
-Passenger
+Customer
 
 Pickup
 
@@ -671,7 +671,7 @@ Driver
 
 Best Navigation
 
-Passenger
+Customer
 
 Balanced
 
@@ -772,7 +772,7 @@ The driver arrow will always point north while the road rotates beneath it.
 Pickup and destination will always auto-fit within the visible map before navigation begins.
 Camera movement will feel smooth and predictive rather than reacting to raw GPS updates.
 Route recalculation will be intelligent and efficient instead of occurring on every location update.
-Driver, passenger, and future delivery modules will all share the same Navigation Engine.
+Driver, customer, and future delivery modules will all share the same Navigation Engine.
 One additional feature I'd add
 
 One capability I didn't see in the audit or reference images—but which would noticeably improve the experience—is a Camera State Manager.

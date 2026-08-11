@@ -1,6 +1,6 @@
 /**
  * H3 Store Integration Examples
- * 
+ *
  * Demonstrates how to use H3 spatial indexing with Zustand stores
  */
 
@@ -9,13 +9,13 @@ import { useDriverStore } from '@/state/driverStore';
 import { useRideStore } from '@/state/rideStore';
 
 // ============================================
-// Example 1: Passenger Location Tracking
+// Example 1: Customer Location Tracking
 // ============================================
 
-function examplePassengerTracking() {
-    const { pickup, passengerHex9, setPickup } = useRideStore();
+function exampleCustomerTracking() {
+    const { pickup, customerHex9, setPickup } = useRideStore();
 
-    // Simulate passenger selecting pickup location
+    // Simulate customer selecting pickup location
     const pickupLocation = {
         latitude: -15.4167,
         longitude: 28.2833,
@@ -25,8 +25,8 @@ function examplePassengerTracking() {
     // Set pickup - hex9 is automatically calculated
     setPickup(pickupLocation);
 
-    console.log('Passenger Location:', pickup);
-    console.log('Passenger Hex9:', passengerHex9);
+    console.log('Customer Location:', pickup);
+    console.log('Customer Hex9:', customerHex9);
     // Output: "89754e64992ffff"
 }
 
@@ -62,22 +62,22 @@ interface Driver {
 }
 
 function findNearbyDrivers(allDrivers: Driver[]) {
-    const { passengerHex9 } = useRideStore.getState();
+    const { customerHex9 } = useRideStore.getState();
 
-    if (!passengerHex9) {
-        console.log('No passenger location set');
+    if (!customerHex9) {
+        console.log('No customer location set');
         return [];
     }
 
     // Strategy 1: Check exact hexagon match (within 170m)
-    const exactMatch = allDrivers.filter(d => d.driverHex9 === passengerHex9);
+    const exactMatch = allDrivers.filter(d => d.driverHex9 === customerHex9);
     if (exactMatch.length > 0) {
         console.log(`Found ${exactMatch.length} drivers in same hexagon!`);
         return exactMatch;
     }
 
     // Strategy 2: Check 1-ring neighbors (within ~500m)
-    const ring1 = getNearbyHexes(passengerHex9, 1);
+    const ring1 = getNearbyHexes(customerHex9, 1);
     const ring1Match = allDrivers.filter(d =>
         d.driverHex9 && ring1.includes(d.driverHex9)
     );
@@ -87,7 +87,7 @@ function findNearbyDrivers(allDrivers: Driver[]) {
     }
 
     // Strategy 3: Check 2-ring neighbors (within ~1km)
-    const ring2 = getNearbyHexes(passengerHex9, 2);
+    const ring2 = getNearbyHexes(customerHex9, 2);
     const ring2Match = allDrivers.filter(d =>
         d.driverHex9 && ring2.includes(d.driverHex9)
     );
@@ -101,27 +101,27 @@ function findNearbyDrivers(allDrivers: Driver[]) {
 // ============================================
 
 function checkProximity() {
-    const { passengerHex9 } = useRideStore.getState();
+    const { customerHex9 } = useRideStore.getState();
     const { driverHex9 } = useDriverStore.getState();
 
-    if (!passengerHex9 || !driverHex9) {
+    if (!customerHex9 || !driverHex9) {
         return { inSameHex: false, nearby: false };
     }
 
     // Check if in exact same hexagon (within 170m)
-    if (passengerHex9 === driverHex9) {
-        console.log('🎯 Driver and passenger are in the same hexagon!');
+    if (customerHex9 === driverHex9) {
+        console.log('🎯 Driver and customer are in the same hexagon!');
         return { inSameHex: true, nearby: true };
     }
 
     // Check if in neighboring hexagons (within ~500m)
-    const nearbyHexes = getNearbyHexes(passengerHex9, 1);
+    const nearbyHexes = getNearbyHexes(customerHex9, 1);
     if (nearbyHexes.includes(driverHex9)) {
         console.log('📍 Driver is in a neighboring hexagon');
         return { inSameHex: false, nearby: true };
     }
 
-    console.log('📌 Driver is far from passenger');
+    console.log('📌 Driver is far from customer');
     return { inSameHex: false, nearby: false };
 }
 
@@ -130,10 +130,10 @@ function checkProximity() {
 // ============================================
 
 function mockDriverMatching() {
-    const { passengerHex9 } = useRideStore.getState();
+    const { customerHex9 } = useRideStore.getState();
 
-    if (!passengerHex9) {
-        throw new Error('Passenger location not set');
+    if (!customerHex9) {
+        throw new Error('Customer location not set');
     }
 
     // Mock driver pool
@@ -141,7 +141,7 @@ function mockDriverMatching() {
         {
             id: 'driver_1',
             name: 'John Banda',
-            driverHex9: '89754e64992ffff', // Same hex as passenger
+            driverHex9: '89754e64992ffff', // Same hex as customer
             currentLocation: { latitude: -15.4167, longitude: 28.2833 }
         },
         {
@@ -159,7 +159,7 @@ function mockDriverMatching() {
     ];
 
     console.log('\n=== Driver Matching Algorithm ===');
-    console.log(`Passenger Hex: ${passengerHex9}`);
+    console.log(`Customer Hex: ${customerHex9}`);
 
     // Find nearby drivers
     const nearbyDrivers = findNearbyDrivers(mockDrivers);
@@ -179,9 +179,9 @@ function mockDriverMatching() {
 // ============================================
 
 function performanceTest() {
-    const { passengerHex9 } = useRideStore.getState();
+    const { customerHex9 } = useRideStore.getState();
 
-    if (!passengerHex9) return;
+    if (!customerHex9) return;
 
     // Generate 1000 mock drivers
     const mockDrivers: Driver[] = Array.from({ length: 1000 }, (_, i) => ({
@@ -213,7 +213,7 @@ function performanceTest() {
 export function runH3StoreExamples() {
     console.log('=== H3 Store Integration Examples ===\n');
 
-    examplePassengerTracking();
+    exampleCustomerTracking();
     exampleDriverLocationUpdates();
     mockDriverMatching();
     performanceTest();
@@ -222,7 +222,6 @@ export function runH3StoreExamples() {
 }
 
 export {
-    checkProximity, exampleDriverLocationUpdates, examplePassengerTracking, findNearbyDrivers, mockDriverMatching,
+    checkProximity, exampleDriverLocationUpdates, exampleCustomerTracking, findNearbyDrivers, mockDriverMatching,
     performanceTest
 };
-

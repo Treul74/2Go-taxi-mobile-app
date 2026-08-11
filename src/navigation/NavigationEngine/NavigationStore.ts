@@ -27,7 +27,7 @@ import {
   type NavigationTransitionError,
 } from './NavigationModes';
 import { navigationEventBus } from './NavigationEvents';
-import type { GPSFix, GPSSignalStatus, LatLng, NavigationActions, NavigationDataActions, NavigationState, RouteData, RouteProgress } from './types';
+import type { GPSFix, GPSSignalStatus, LatLng, NavigationActions, NavigationActor, NavigationDataActions, NavigationState, RouteData, RouteProgress } from './types';
 
 const initialState: NavigationState = {
   // Lifecycle
@@ -55,6 +55,7 @@ const initialState: NavigationState = {
 
   // Route
   route: null,
+  overviewRoute: null,
   progress: null,
   currentStep: null,
   currentInstruction: null,
@@ -76,7 +77,7 @@ const initialState: NavigationState = {
  * IDLE shouldn't show stale trip data. Deliberately excludes `cameraState`,
  * `followMode`, `recenterState`, `gpsState`, and `navigationEnabled`: those
  * describe the engine/device's own ongoing configuration, not a specific
- * trip, so they persist across trips (e.g. a Transporter's GPS status
+ * trip, so they persist across trips (e.g. a Driver's GPS status
  * doesn't reset just because one trip ended).
  */
 const IDLE_RESET_FIELDS: Partial<NavigationState> = {
@@ -87,6 +88,7 @@ const IDLE_RESET_FIELDS: Partial<NavigationState> = {
   heading: null,
   speed: null,
   route: null,
+  overviewRoute: null,
   progress: null,
   currentStep: null,
   currentInstruction: null,
@@ -248,6 +250,12 @@ export const useNavigationStore = create<NavigationStore>()((set) => ({
     set({ cameraState: 'FREE_EXPLORE', followMode: false, recenterState: 'available' });
   },
 
+  // --- Data setters ----------------------------------------------------------
+
+  setOverviewRoute: (route) => set({ overviewRoute: route }),
+
+  setRoute: (route) => set({ route }),
+
   setNavigationEnabled: (enabled: boolean) => {
     set({ navigationEnabled: enabled });
   },
@@ -259,6 +267,28 @@ export const useNavigationStore = create<NavigationStore>()((set) => ({
 
   setGpsFix: (fix: GPSFix) => {
     set(gpsFixPatch(fix));
+  },
+
+  setDriverLocation: (location: LatLng | null, heading?: number | null) => {
+    set((state) => ({
+      driverLocation: location,
+      heading: heading === undefined ? state.heading : heading,
+    }));
+  },
+
+  setActor: (actor: NavigationActor | null) => {
+    set({ actor });
+  },
+
+  setCustomerGpsFix: (fix: GPSFix) => {
+    set({
+      customerLocation: fix.coordinate,
+      gpsState: {
+        status: 'active',
+        lastFix: fix,
+        accuracyMeters: fix.accuracy ?? null,
+      },
+    });
   },
 
   setGpsStatus: (status: GPSSignalStatus) => {

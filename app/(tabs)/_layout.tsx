@@ -14,7 +14,7 @@ const UNREAD_BADGE_POLL_MS = 15000;
 
 /**
  * Tab layout for 2Go app
- * Passenger: Home, Activity, Messages, Account
+ * Customer: Home, Activity, Messages, Account
  * Driver: Orders, Wallet, Messages, Account
  *
  * Auth is enforced one level up in the root layout (Stack.Protected) — this

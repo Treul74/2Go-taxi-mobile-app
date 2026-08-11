@@ -1,13 +1,16 @@
-import { Map } from '@/components/map';
-import { Card, SkeletonBox } from '@/components/ui';
+import { NavigationMap } from '@/components/navigation';
+import { Card, IconButton, SkeletonBox } from '@/components/ui';
+import { recenterOnLocation } from '@/navigation/NavigationEngine/CameraController';
 import * as GPSManager from '@/navigation/NavigationEngine/GPSManager';
 import { useNavigation } from '@/navigation/NavigationEngine/hooks/useNavigation';
+import { useDriverLocation, useFollowMode } from '@/navigation/NavigationEngine/NavigationHooks';
 import { safeTransition } from '@/navigation/NavigationEngine/safeTransition';
 import { useDriverStore, useUserStore } from '@/state';
 import { useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect } from 'react';
 import { Alert, ScrollView, StatusBar, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 import { DashboardStats, OnlineToggle, RequestCard } from './components';
 
 /**
@@ -30,96 +33,60 @@ export function DriverDashboard() {
   } = useDriverStore();
   const navigation = useNavigation();
 
-  const [driverLocation, setDriverLocation] = useState<{ latitude: number; longitude: number } | null>(null);
-  const [driverHeading, setDriverHeading] = useState<number>(0);
-  const [isAutoFollow, setIsAutoFollow] = useState(true);
-  const [lastInteraction, setLastInteraction] = useState(0);
-  const mapRef = React.useRef<any>(null);
-  // Mirrors isAutoFollow for the onFix callback below, so that callback can
-  // read its current value without needing isAutoFollow in the tracking
-  // effect's dependency array — toggling auto-follow no longer tears down
-  // and recreates the GPS subscription (a pre-existing inefficiency; see
-  // audit_export/audit_03-08-26_11-58_gps-subscription-audit.md).
-  const isAutoFollowRef = React.useRef(isAutoFollow);
-  useEffect(() => {
-    isAutoFollowRef.current = isAutoFollow;
-  }, [isAutoFollow]);
+  // Engine-owned — read from NavigationStore, not mirrored into local state
+  // (matches app/(driver)/navigation.tsx's/trip.tsx's migration pattern).
+  // NavigationProvider (mounted once at the app root) already forwards
+  // every GPSManager fix into this once GPS is acquired below. Heading
+  // isn't read here — <NavigationMap/> already reads it from the store
+  // internally to render the car marker, this screen has no other use for it.
+  const driverLocation = useDriverLocation();
+  // Whether the camera is actively auto-following (true) or the driver
+  // panned away into FREE_EXPLORE (false) — <NavigationMap/>'s own gesture
+  // handling already owns this transition (pan -> enterFreeExplore() -> a
+  // 7s timer -> recenter()), so no screen-local auto-follow timer is needed.
+  const followMode = useFollowMode();
 
-  // Auto-follow logic: Resumes following after 5 seconds of no interaction
-  useEffect(() => {
-    if (!isAutoFollow) {
-      const timer = setInterval(() => {
-        const now = Date.now();
-        if (now - lastInteraction > 5000) {
-          setIsAutoFollow(true);
-        }
-      }, 1000);
-      return () => clearInterval(timer);
-    }
-  }, [isAutoFollow, lastInteraction]);
-
-  const handleMapAction = () => {
-    setIsAutoFollow(false);
-    setLastInteraction(Date.now());
-  };
-
-  // High-accuracy real-time tracking. GPS acquisition goes entirely through
-  // GPSManager (the only file allowed to create a location subscription —
-  // see src/navigation/NavigationEngine/GPSManager.ts), which owns its own
-  // accuracy-tier/fallback handling internally, so this effect only reacts
-  // to `isOnline`, not `isAutoFollow` — the underlying subscription is no
-  // longer torn down and recreated on every auto-follow toggle.
+  // GPS acquisition lifecycle only — goes entirely through GPSManager, the
+  // only file allowed to create a location subscription
+  // (src/navigation/NavigationEngine/GPSManager.ts).
   useEffect(() => {
     if (!isOnline) return;
 
-    let cancelled = false;
-    const unsubscribeFix = GPSManager.onFix((fix) => {
-      setDriverLocation(fix.coordinate);
-      updateLocation(fix.coordinate.latitude, fix.coordinate.longitude);
-      if (fix.heading !== undefined) {
-        setDriverHeading(fix.heading);
-      }
-
-      if (isAutoFollowRef.current && mapRef.current) {
-        mapRef.current.animateToRegion({
-          latitude: fix.coordinate.latitude,
-          longitude: fix.coordinate.longitude,
-          latitudeDelta: 0.0035,
-          longitudeDelta: 0.0016,
-        }, 600);
+    GPSManager.acquire('foreground', 'customerBalanced').catch((error) => {
+      if (__DEV__) {
+        console.warn('[DriverDashboard] GPS acquisition failed:', error);
       }
     });
 
-    async function startTracking() {
-      try {
-        await GPSManager.acquire('foreground', 'driverBestNavigation');
-        if (cancelled) return;
-
-        // A sibling consumer (or a previous mount) may already have
-        // GPSManager tracking active — seed immediately from its last fix
-        // instead of waiting for the next tick.
-        const existingFix = GPSManager.getLastFix();
-        if (existingFix) {
-          setDriverLocation(existingFix.coordinate);
-          updateLocation(existingFix.coordinate.latitude, existingFix.coordinate.longitude);
-          if (existingFix.heading !== undefined) {
-            setDriverHeading(existingFix.heading);
-          }
-        }
-      } catch {
-        // Silently handle location errors (including 'unsatisfied device settings'),
-        // matching the previous behaviour.
-      }
-    }
-
-    startTracking();
-
     return () => {
-      cancelled = true;
-      unsubscribeFix();
       GPSManager.release();
     };
   }, [isOnline]);
+
+  // Bridges the engine's live driverLocation into driverStore's persisted
+  // position (hex9/nearbyHexes/incomingRequests recompute on every call) —
+  // same bridge app/(driver)/trip.tsx already uses; NavigationStore
+  // intentionally isn't written back to driverStore on its own
+  // (Architecture.md's "Relationship to existing stores").
+  useEffect(() => {
+    if (driverLocation) {
+      updateLocation(driverLocation.latitude, driverLocation.longitude);
+    }
+  }, [driverLocation, updateLocation]);
+
+  // Camera follow, engine-owned: CameraController has no per-mode opinion
+  // for IDLE/OFFLINE (no active trip to frame), so this re-centers on every
+  // fix directly via CameraController.recenterOnLocation — the same
+  // one-shot primitive CustomerHome's recenter button uses — instead of
+  // calling animateToRegion() itself. Gated on followMode (owned by
+  // <NavigationMap/>'s own pan-gesture handling below) so panning away
+  // pauses following exactly as before, without a second, screen-local
+  // auto-follow timer duplicating that mechanism.
+  useEffect(() => {
+    if (driverLocation && followMode) {
+      recenterOnLocation(driverLocation);
+    }
+  }, [driverLocation, followMode]);
 
   // Leave the pending-orders realtime channel on unmount regardless of
   // online state, so navigating away never leaves a dangling subscription.
@@ -169,7 +136,7 @@ export function DriverDashboard() {
     if (trip) {
       // Drives NavigationStore through the same edges a Customer's own
       // booking flow would (IDLE -> PREVIEW -> MATCHING), landing on
-      // DRIVER_TO_PICKUP the moment this Transporter accepts — per Phase 5C:
+      // DRIVER_TO_PICKUP the moment this Driver accepts — per Phase 5C:
       // reusing the existing state machine's legal edges, not inventing one.
       safeTransition(() => {
         navigation.preview(trip.pickup, trip.destination);
@@ -182,37 +149,90 @@ export function DriverDashboard() {
     }
   };
 
+  const handleRecenter = React.useCallback(async () => {
+    try {
+      const fix = await GPSManager.getCurrentFix('driverBestNavigation');
+      if (fix) {
+        recenterOnLocation(fix.coordinate);
+        navigation.recenter(); // exit free explore mode
+      }
+    } catch {
+      // Silently ignore
+    }
+  }, [navigation]);
+
   return (
     <View className="flex-1 bg-background">
       <StatusBar barStyle="dark-content" backgroundColor="#E7F1F9" />
 
-      {/* Full-screen Google Map background */}
+      {/* Full-screen map — the engine (CameraController, driven by
+          NavigationStore) owns every marker/camera decision this base
+          layer renders; the screen no longer passes driver position or
+          camera props by hand. */}
       <View className="absolute inset-0">
-        <Map
-          ref={mapRef}
-          driverLocation={driverLocation || undefined}
-          driverHeading={driverHeading}
-          showUserMarker={false}
-          scrollEnabled={true}
-          zoomEnabled={true}
-          onPanDrag={handleMapAction}
-          onRegionChangeComplete={handleMapAction}
-        />
+        <NavigationMap />
       </View>
 
       <SafeAreaView className="flex-1" edges={['top', 'bottom']} pointerEvents="box-none">
         {/* Header - Minimalist & Centered Status */}
-        <View className="px-5 pt-4 pb-2 items-center justify-center" pointerEvents="box-none">
+        <View className="px-5 pt-4 pb-2 items-center justify-center flex-row relative" pointerEvents="box-none">
           {/* Status Pill */}
           <View className={`px-5 py-2 rounded-full ${isOnline ? 'bg-success/10' : 'bg-primary/10'} shadow-sm bg-white/95 border border-white/20`}>
             <Text className={`font-bold text-sm ${isOnline ? 'text-success' : 'text-primary uppercase tracking-wider'}`}>
               {isOnline ? "You're Online" : "Currently Offline"}
             </Text>
           </View>
+
+          {/* Fixed Online Toggle at top right */}
+          <View className="absolute right-5" pointerEvents="auto">
+            <OnlineToggle isOnline={isOnline} onToggle={handleToggleOnline} />
+          </View>
         </View>
 
         {/* Dashboard Stats - Only show when offline */}
         {!isOnline && <DashboardStats />}
+
+        {/* Offline Placeholder Overlay */}
+        {!isOnline && (
+          <View className="flex-1 items-center justify-center pointer-events-none px-5 pb-20">
+            <View className="bg-white/95 px-6 py-8 rounded-3xl items-center shadow-sm border border-gray-200 w-full max-w-sm">
+              <View className="w-16 h-16 rounded-full bg-gray-100 items-center justify-center mb-4">
+                <Ionicons name="moon-outline" size={32} color="#9CA3AF" />
+              </View>
+              <Text className="text-xl font-bold text-primary mb-2">You're Offline</Text>
+              <Text className="text-sm text-gray-500 text-center leading-relaxed">
+                Toggle online to start receiving ride requests.
+              </Text>
+            </View>
+          </View>
+        )}
+
+        {/* Re-center Button (Locator Icon) */}
+        <View
+          className="absolute right-5"
+          style={{
+            bottom: isOnline ? (incomingRequests.length > 0 ? 300 : 120) : 320,
+            zIndex: 15
+          }}
+        >
+          <View
+            className="bg-white p-0.5 rounded-full shadow-lg"
+            style={{
+              shadowColor: '#000',
+              shadowOffset: { width: 0, height: 4 },
+              shadowOpacity: 0.2,
+              shadowRadius: 8,
+              elevation: 10
+            }}
+          >
+            <IconButton
+              icon="locate"
+              variant="ghost"
+              size="lg"
+              onPress={handleRecenter}
+            />
+          </View>
+        </View>
 
         {/* Dynamic Overlay for Requests */}
         <View className="flex-1 justify-end px-5 pb-4" pointerEvents="box-none">
@@ -258,10 +278,6 @@ export function DriverDashboard() {
             </View>
           )}
 
-          {/* Fixed Online Toggle at bottom */}
-          <View pointerEvents="auto">
-            <OnlineToggle isOnline={isOnline} onToggle={handleToggleOnline} />
-          </View>
         </View>
       </SafeAreaView>
     </View>

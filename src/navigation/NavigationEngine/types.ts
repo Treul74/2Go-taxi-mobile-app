@@ -37,12 +37,14 @@ export interface LatLngBounds {
 
 /**
  * Who the engine is navigating on behalf of. Deliberately distinct from the
- * legacy `UserRole` ('passenger' | 'driver') in src/types/index.ts — per
- * AGENTS.md naming rules, new code uses Customer/Transporter. The engine
+ * legacy `UserRole` ('passenger' | 'driver') in src/types/index.ts — that
+ * literal is kept as a documented legacy exception (mirrors the DB's
+ * customers.account_type value), while this engine-internal value uses
+ * AGENTS.md's canonical Customer/Driver terminology directly. The engine
  * does not read or write `UserRole`; a mapping lives at the integration
  * boundary (NavigationProvider), not here.
  */
-export type NavigationActor = 'customer' | 'transporter';
+export type NavigationActor = 'customer' | 'driver';
 
 // ---------------------------------------------------------------------------
 // GPS
@@ -74,7 +76,7 @@ export interface GPSFix {
 }
 
 /** Named GPS accuracy/power tradeoffs. See GPSManager in Architecture.md. */
-export type GPSProfile = 'planning' | 'driverBestNavigation' | 'passengerBalanced' | 'backgroundLowPower';
+export type GPSProfile = 'planning' | 'driverBestNavigation' | 'customerBalanced' | 'backgroundLowPower';
 
 /**
  * Lifecycle of the engine's single location watcher, as a value the store
@@ -256,13 +258,13 @@ export interface NavigationState {
 
   /** Who this device's own GPS is authoritative for — see NavigationActor doc. */
   actor: NavigationActor | null;
-  /** The Transporter's current position — this device's own GPS if `actor === 'transporter'`, otherwise synced from the backend. */
+  /** The Driver's current position — this device's own GPS if `actor === 'driver'`, otherwise synced from the backend. */
   driverLocation: LatLng | null;
   /** The Customer's current position — this device's own GPS if `actor === 'customer'`, otherwise synced from the backend (may be unavailable). */
   customerLocation: LatLng | null;
-  /** The Transporter's compass/GPS heading, degrees 0-360. Null until a fix with heading data arrives. */
+  /** The Driver's compass/GPS heading, degrees 0-360. Null until a fix with heading data arrives. */
   heading: number | null;
-  /** The Transporter's current speed, meters/second. */
+  /** The Driver's current speed, meters/second. */
   speed: number | null;
 
   // --- GPS ---------------------------------------------------------------
@@ -271,9 +273,11 @@ export interface NavigationState {
 
   // --- Route ---------------------------------------------------------------
 
-  /** The currently active route, or null before one has been calculated. */
+  /** The active route (driver -> pickup, or driver -> destination). Set once route calculation completes. */
   route: RouteData | null;
-  /** Fine-grained progress along `route` (see RouteProgress). */
+  /** The full trip overview route (pickup -> destination). Static for the duration of the trip. */
+  overviewRoute: RouteData | null;
+  /** Live progress along the active route. Engine-populated, driven by GPS ticks. */
   progress: RouteProgress | null;
   /** The RouteStep currently being driven. */
   currentStep: RouteStep | null;
@@ -290,13 +294,13 @@ export interface NavigationState {
 
   /** High-level camera intent — see CameraState doc. */
   cameraState: CameraState;
-  /** The camera's current bearing, degrees 0-360, 0 = north-up. Distinct from `heading`: this is what the camera is doing, which may lag or differ from the Transporter's raw heading. */
+  /** The camera's current bearing, degrees 0-360, 0 = north-up. Distinct from `heading`: this is what the camera is doing, which may lag or differ from the Driver's raw heading. */
   bearing: number | null;
   /** The camera's current zoom level. */
   zoom: number | null;
   /** The camera's current pitch/tilt, degrees. */
   pitch: number | null;
-  /** Whether the camera is actively auto-following the Transporter (true when `cameraState === 'FOLLOW_DRIVER'`; false once the user pans/pinches into `FREE_EXPLORE`). */
+  /** Whether the camera is actively auto-following the Driver (true when `cameraState === 'FOLLOW_DRIVER'`; false once the user pans/pinches into `FREE_EXPLORE`). */
   followMode: boolean;
   /** Lifecycle of the floating "Recenter" affordance — see RecenterState doc. */
   recenterState: RecenterState;
@@ -326,15 +330,15 @@ export interface NavigationActions {
 
   /** IDLE -> PREVIEW. Records the chosen pickup/destination and previews the route pre-booking. */
   preview: (pickup: LatLng, destination: LatLng) => void;
-  /** PREVIEW -> MATCHING. Booking confirmed; broadcasting to Transporters. */
+  /** PREVIEW -> MATCHING. Booking confirmed; broadcasting to Drivers. */
   requestMatch: () => void;
-  /** MATCHING -> DRIVER_TO_PICKUP. A Transporter accepted and is en route to the Customer. Optionally records their starting position as `driverLocation`. */
+  /** MATCHING -> DRIVER_TO_PICKUP. A Driver accepted and is en route to the Customer. Optionally records their starting position as `driverLocation`. */
   driverToPickup: (driverLocation?: LatLng) => void;
-  /** DRIVER_TO_PICKUP -> ARRIVED_PICKUP. The Transporter has reached the pickup point. */
+  /** DRIVER_TO_PICKUP -> ARRIVED_PICKUP. The Driver has reached the pickup point. */
   arrivedAtPickup: () => void;
   /** ARRIVED_PICKUP -> TRIP_IN_PROGRESS. The Customer is onboard; trip begins. */
   startTrip: () => void;
-  /** TRIP_IN_PROGRESS -> ARRIVED_DROPOFF. The Transporter has reached the destination. */
+  /** TRIP_IN_PROGRESS -> ARRIVED_DROPOFF. The Driver has reached the destination. */
   arrivedAtDropoff: () => void;
   /** ARRIVED_DROPOFF -> TRIP_COMPLETED. The trip has been finalized. */
   completeTrip: () => void;
@@ -342,9 +346,9 @@ export interface NavigationActions {
   cancel: () => void;
   /** TRIP_COMPLETED -> IDLE. Return to idle after a finished trip's summary is dismissed. */
   reset: () => void;
-  /** IDLE -> OFFLINE. A Transporter with no active request goes offline. */
+  /** IDLE -> OFFLINE. A Driver with no active request goes offline. */
   goOffline: () => void;
-  /** OFFLINE -> IDLE. A Transporter comes back online. */
+  /** OFFLINE -> IDLE. A Driver comes back online. */
   goOnline: () => void;
 
   /**
@@ -379,8 +383,41 @@ export interface NavigationActions {
  * internals).
  */
 export interface NavigationDataActions {
-  /** Forwards one `GPSManager` fix into the store: `driverLocation`, `heading`, `speed`, `gpsState.lastFix`/`accuracyMeters`, and marks `gpsState.status` as `'active'`. */
+  /** Unconditionally sets the active route. Engine/caller assumes validity. */
+  setRoute: (route: RouteData | null) => void;
+  /** Sets the full trip overview route (pickup -> destination). */
+  setOverviewRoute: (route: RouteData | null) => void;
+  /** Records the current position/heading/speed from the device hardware. */
   setGpsFix: (fix: GPSFix) => void;
+  /**
+   * Publishes a network-synced Driver position — e.g. a Customer
+   * device forwarding the position it just received over its order's
+   * realtime channel — into `driverLocation`/`heading`. Distinct from
+   * `setGpsFix`: this device isn't the one producing the fix, so there's no
+   * `GPSFix` (accuracy/quality/speed) to carry, only the coordinate and
+   * optionally a heading. Leaves `heading` unchanged when omitted. See the
+   * `driverLocation`/`customerLocation` doc comments above for why this
+   * producer exists (`actor !== 'driver'` case).
+   */
+  setDriverLocation: (location: LatLng | null, heading?: number | null) => void;
+  /**
+   * Records which actor (Customer/Driver) this device's own GPS is
+   * authoritative for — see the `actor`/`driverLocation`/`customerLocation`
+   * doc comments above. Set by `NavigationProvider` from the user's active
+   * role (`userStore.role`), and re-set whenever that role changes (e.g. via
+   * `RoleSwitcher`) — not screen-facing, no screen should need to call this.
+   */
+  setActor: (actor: NavigationActor | null) => void;
+  /**
+   * Forwards one `GPSManager` fix into `customerLocation` only — the
+   * Customer-device counterpart to `setGpsFix`, which is reserved for
+   * `actor === 'driver'`. Unlike `setGpsFix`, does not touch
+   * `heading`/`speed` (the Bible models those as the Driver's vehicle,
+   * not the Customer's own movement) but does update `gpsState`, since GPS
+   * signal status describes this device's own localization regardless of
+   * which actor it belongs to.
+   */
+  setCustomerGpsFix: (fix: GPSFix) => void;
   /** Updates `gpsState.status` only — for `GPSManager` status changes that aren't a new fix (e.g. `'acquiring'`/`'lost'`/`'disabled'`). */
   setGpsStatus: (status: GPSSignalStatus) => void;
   /** Publishes a freshly-fetched route: `route`, and (when non-null) seeds `currentStep`/`currentInstruction` from its first step, `distanceMeters`, and `etaSeconds`. Passing `null` clears all four. */

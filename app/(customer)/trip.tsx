@@ -1,24 +1,125 @@
-import { Map } from '@/components/map';
+import { NavigationCompass, NavigationControls, NavigationMap } from '@/components/navigation';
 import { Button, Card, IconButton } from '@/components/ui';
+import { CancellationModal } from '@/features/customer/components';
 import { formatDisplayAddress } from '@/lib';
+import { useNavigation } from '@/navigation/NavigationEngine/hooks/useNavigation';
+import { NavigationMode } from '@/navigation/NavigationEngine/NavigationModes';
+import { useNavigationStore } from '@/navigation/NavigationEngine/NavigationStore';
+import { safeTransition } from '@/navigation/NavigationEngine/safeTransition';
+import type { LatLng, NavigationActions } from '@/navigation/NavigationEngine/types';
 import { useRideStore } from '@/state';
-import type { CancellationReason } from '@/types';
+import type { ActiveTrip, CancellationReason } from '@/types';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { Linking, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { CancellationModal } from '@/features/passenger/components';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+
+/** The trip-lifecycle path a Customer's own local NavigationStore mode
+ * machine can walk, in order — see `advanceNavigationMode` below. */
+const MODE_SEQUENCE: NavigationMode[] = [
+  NavigationMode.IDLE,
+  NavigationMode.PREVIEW,
+  NavigationMode.MATCHING,
+  NavigationMode.DRIVER_TO_PICKUP,
+  NavigationMode.ARRIVED_PICKUP,
+  NavigationMode.TRIP_IN_PROGRESS,
+  NavigationMode.ARRIVED_DROPOFF,
+  NavigationMode.TRIP_COMPLETED,
+];
+
+/** Maps rideStore's `activeTrip.status` onto its NavigationEngine mode
+ * equivalent — 'arriving' has no separate NavigationMode of its own
+ * (AGENTS.md's DRIVER_TO_PICKUP covers the whole "driver en route to
+ * pickup" span, same as the Bible's "Navigate To Pickup"). */
+function targetModeForStatus(status: ActiveTrip['status']): NavigationMode {
+  switch (status) {
+    case 'driver_assigned':
+    case 'arriving':
+      return NavigationMode.DRIVER_TO_PICKUP;
+    case 'waiting':
+      return NavigationMode.ARRIVED_PICKUP;
+    case 'in_progress':
+      return NavigationMode.TRIP_IN_PROGRESS;
+    case 'completed':
+      return NavigationMode.TRIP_COMPLETED;
+  }
+}
+
+/**
+ * Replays this device's own local `NavigationStore` mode machine forward to
+ * match `activeTrip.status`, one legal edge at a time — the Customer-side
+ * equivalent of `DriverDashboard.handleAcceptRequest`'s replay for the
+ * Driver side (same reasoning: `NavigationStore` is a per-device
+ * Zustand store, not shared over the network, so each device has to drive
+ * its own instance from whatever status updates it already receives).
+ * Re-reads the store after every step rather than precomputing a range, so
+ * a step `safeTransition` silently rejected doesn't get treated as if it
+ * had succeeded, and stops as soon as no further progress is made.
+ */
+function advanceNavigationMode(
+  navigation: NavigationActions,
+  targetMode: NavigationMode,
+  pickup: LatLng,
+  destination: LatLng
+): void {
+  const targetIndex = MODE_SEQUENCE.indexOf(targetMode);
+  if (targetIndex === -1) return;
+
+  for (let i = 0; i < MODE_SEQUENCE.length; i++) {
+    const currentMode = useNavigationStore.getState().mode;
+    const currentIndex = MODE_SEQUENCE.indexOf(currentMode);
+    if (currentIndex === -1 || currentIndex >= targetIndex) return;
+
+    const nextMode = MODE_SEQUENCE[currentIndex + 1];
+    safeTransition(() => {
+      switch (nextMode) {
+        case NavigationMode.PREVIEW:
+          navigation.preview(pickup, destination);
+          break;
+        case NavigationMode.MATCHING:
+          navigation.requestMatch();
+          break;
+        case NavigationMode.DRIVER_TO_PICKUP:
+          navigation.driverToPickup();
+          break;
+        case NavigationMode.ARRIVED_PICKUP:
+          navigation.arrivedAtPickup();
+          break;
+        case NavigationMode.TRIP_IN_PROGRESS:
+          navigation.startTrip();
+          break;
+        case NavigationMode.ARRIVED_DROPOFF:
+          navigation.arrivedAtDropoff();
+          break;
+        case NavigationMode.TRIP_COMPLETED:
+          navigation.completeTrip();
+          break;
+      }
+    });
+
+    if (useNavigationStore.getState().mode === currentMode) return; // stuck — stop instead of looping
+  }
+}
 
 /**
  * Customer Trip Tracking Screen
  * Full-screen map showing the driver moving toward pickup/destination in
  * real time, driven entirely by rideStore.activeTrip (populated over the
- * order's realtime channel — see rideStore.applyOrderUpdate).
+ * order's realtime channel — see rideStore.applyOrderUpdate). The map layer
+ * itself now runs on the shared Navigation Engine (NavigationMap /
+ * CameraController / NavigationStore) instead of a raw <Map> — see
+ * advanceNavigationMode above for how this device's own NavigationStore
+ * mode machine is kept in sync with activeTrip.status, and the effect below
+ * for how activeTrip's realtime driver position is forwarded into it.
+ * rideStore itself is untouched: this screen only reads activeTrip, never
+ * writes it.
  */
 export default function CustomerTripScreen() {
   const { activeTrip, status, cancelRide } = useRideStore();
   const [showCancellationModal, setShowCancellationModal] = useState(false);
+  const navigation = useNavigation();
+  const insets = useSafeAreaInsets();
 
   // Redirect home if there's no active trip to show (cancelled, completed,
   // or this screen was reached without an order in flight).
@@ -27,6 +128,30 @@ export default function CustomerTripScreen() {
       router.replace('/(tabs)');
     }
   }, [status, activeTrip]);
+
+  // Keeps this device's own NavigationStore mode in step with
+  // activeTrip.status — see advanceNavigationMode's doc.
+  useEffect(() => {
+    if (!activeTrip) return;
+    const pickup: LatLng = { latitude: activeTrip.pickup.latitude, longitude: activeTrip.pickup.longitude };
+    const destination: LatLng = {
+      latitude: activeTrip.destination.latitude,
+      longitude: activeTrip.destination.longitude,
+    };
+    advanceNavigationMode(navigation, targetModeForStatus(activeTrip.status), pickup, destination);
+  }, [activeTrip?.status, activeTrip?.pickup, activeTrip?.destination, navigation]);
+
+  // Forwards the driver's realtime-channel position into NavigationStore —
+  // NavigationMap/CameraController read driverLocation from here, not from
+  // a prop this screen passes by hand. rideStore's own applyOrderUpdate
+  // write (the actual data source) is unchanged; this only adds a second
+  // consumer of the value it already produces.
+  useEffect(() => {
+    useNavigationStore.getState().setDriverLocation(
+      activeTrip?.driverLocation ?? null,
+      activeTrip?.driverHeading ?? null
+    );
+  }, [activeTrip?.driverLocation?.latitude, activeTrip?.driverLocation?.longitude, activeTrip?.driverHeading]);
 
   if (!activeTrip) {
     return null;
@@ -44,6 +169,7 @@ export default function CustomerTripScreen() {
 
   const handleConfirmCancellation = (reason: CancellationReason, note?: string) => {
     cancelRide(reason, note);
+    safeTransition(() => navigation.cancel());
     setShowCancellationModal(false);
   };
 
@@ -63,17 +189,20 @@ export default function CustomerTripScreen() {
 
   return (
     <View className="flex-1 bg-background">
-      {/* Full-screen map, following the driver's live position */}
+      {/* Full-screen map — the engine (CameraController, driven by
+          NavigationStore) owns every marker/camera decision this base layer
+          renders; the screen no longer passes driver position or camera
+          props by hand. */}
       <View className="absolute inset-0">
-        <Map
-          driverLocation={activeTrip.driverLocation ?? undefined}
-          driverHeading={activeTrip.driverHeading ?? 0}
-          pickup={activeTrip.pickup}
-          destination={activeTrip.status === 'in_progress' ? activeTrip.destination : undefined}
-          showPickupAsUserLocation
-          autoFollowDriver
-          eta={`${activeTrip.estimatedArrival} min ETA`}
-        />
+        <NavigationMap>
+          <View
+            pointerEvents="box-none"
+            style={{ position: 'absolute', right: 16, top: insets.top + 16, gap: 12 }}
+          >
+            <NavigationCompass />
+            <NavigationControls />
+          </View>
+        </NavigationMap>
       </View>
 
       <SafeAreaView className="flex-1" edges={['top', 'bottom']} pointerEvents="box-none">

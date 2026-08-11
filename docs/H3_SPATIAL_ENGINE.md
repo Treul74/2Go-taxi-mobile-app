@@ -37,13 +37,13 @@ console.log(center); // { latitude: -15.4167, longitude: 28.2833 }
 
 ## Use Cases
 
-### 1. Driver-Passenger Matching
+### 1. Driver-Customer Matching
 ```typescript
-// Passenger requests ride
-const passengerHex = getHex9(passengerLat, passengerLng);
+// Customer requests ride
+const customerHex = getHex9(customerLat, customerLng);
 
 // Find nearby hexagons to search for drivers
-const searchArea = getNearbyHexes(passengerHex, 2); // 2-ring radius
+const searchArea = getNearbyHexes(customerHex, 2); // 2-ring radius
 
 // Filter drivers in those hexagons
 const nearbyDrivers = allDrivers.filter(driver => 
