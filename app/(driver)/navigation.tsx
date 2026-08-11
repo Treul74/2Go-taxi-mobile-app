@@ -8,6 +8,7 @@ import {
   NavigationSpeedWidget,
   NavigationTurnBanner,
   NavigationVoiceToggle,
+  DriverActiveTripCard,
 } from '@/components/navigation';
 import { Button, Card, RideActionSlider } from '@/components/ui';
 import { useDriverTelemetryPing } from '@/hooks';
@@ -21,6 +22,7 @@ import {
     useHeading,
     useNavigationEnabled,
     useOverviewRoute,
+    useGPSState,
 } from '@/navigation/NavigationEngine/NavigationHooks';
 import { fetchRoute } from '@/navigation/NavigationEngine/RouteEngine';
 import { safeTransition } from '@/navigation/NavigationEngine/safeTransition';
@@ -61,6 +63,8 @@ export default function DriverNavigationScreen() {
     const routeCoordinates = route?.path ?? [];
     const routeDistanceText = route ? (route.distanceText ?? formatManeuverDistance(route.distanceMeters)) : null;
 
+    const gpsState = useGPSState();
+
     const [isCalculating, setIsCalculating] = useState(false);
     const [routeError, setRouteError] = useState(false);
     const [elapsedWaitingTime, setElapsedWaitingTime] = useState(0);
@@ -68,6 +72,9 @@ export default function DriverNavigationScreen() {
     const [arrivalAttempt, setArrivalAttempt] = useState(0);
     const [isStartingTrip, setIsStartingTrip] = useState(false);
     const [startTripAttempt, setStartTripAttempt] = useState(0);
+    const [showGpsTimeout, setShowGpsTimeout] = useState(false);
+    const [gpsServicesDisabled, setGpsServicesDisabled] = useState(false);
+    const [elapsedPickupTime, setElapsedPickupTime] = useState(0);
 
     useDriverTelemetryPing(currentTrip?.id, driverLocation, heading ?? 0);
 
@@ -79,7 +86,10 @@ export default function DriverNavigationScreen() {
     // listener that keeps NavigationStore.driverLocation/heading live for
     // every consumer, this screen included, via the selectors above.
     useEffect(() => {
-        GPSManager.acquire('foreground', 'driverBestNavigation').catch(() => {
+        GPSManager.acquire('foreground', 'driverBestNavigation').catch((error) => {
+            if (error instanceof GPSManager.GPSManagerError && error.code === 'SERVICES_DISABLED') {
+                setGpsServicesDisabled(true);
+            }
             // Non-critical — location tracking will retry on next mount.
         });
 
@@ -87,6 +97,28 @@ export default function DriverNavigationScreen() {
             GPSManager.release();
         };
     }, []);
+
+    // 8-10 second timeout for "acquiring" GPS state
+    useEffect(() => {
+        if (gpsState.status === 'acquiring' && (!gpsState.lastFix || gpsState.lastFix.isApproximate)) {
+            const timer = setTimeout(() => {
+                setShowGpsTimeout(true);
+            }, 8000);
+            return () => clearTimeout(timer);
+        } else {
+            setShowGpsTimeout(false);
+        }
+    }, [gpsState.status, gpsState.lastFix]);
+
+    const handleRetryGPS = () => {
+        setShowGpsTimeout(false);
+        setGpsServicesDisabled(false);
+        GPSManager.acquire('foreground', 'driverBestNavigation').catch((error) => {
+            if (error instanceof GPSManager.GPSManagerError && error.code === 'SERVICES_DISABLED') {
+                setGpsServicesDisabled(true);
+            }
+        });
+    };
 
     // Bridges the engine's live driverLocation into driverStore's persisted
     // position (hex9/nearbyHexes/incomingRequests recompute on every call) —
@@ -251,6 +283,13 @@ export default function DriverNavigationScreen() {
         ? calculateDistanceKm(driverLocation.latitude, driverLocation.longitude, currentTrip.pickup.latitude, currentTrip.pickup.longitude).toFixed(1)
         : '...';
 
+    const arrivalTime = useMemo(() => {
+        if (distance === '...') return '...';
+        const mins = Math.ceil(parseFloat(distance) * 2);
+        const arrival = new Date(Date.now() + mins * 60000);
+        return arrival.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }, [distance]);
+
     const isNearPickup = useMemo(() => {
         if (!driverLocation || !currentTrip) return false;
         const meters = calculateDistanceMeters(
@@ -279,6 +318,14 @@ export default function DriverNavigationScreen() {
         return () => clearInterval(interval);
     }, [waitingStartTime]);
 
+    // Pickup phase timer
+    useEffect(() => {
+        if (tripStatus === 'navigating_to_pickup' && navigationEnabled) {
+            const interval = setInterval(() => setElapsedPickupTime((prev) => prev + 1), 1000);
+            return () => clearInterval(interval);
+        }
+    }, [tripStatus, navigationEnabled]);
+
     // This guard must stay below every hook: returning above any hook throws
     // "Rendered fewer hooks than expected" when currentTrip goes null while
     // this screen is still mounted under trip/trip-summary (e.g. on Done).
@@ -297,6 +344,28 @@ export default function DriverNavigationScreen() {
 
     return (
         <View className="flex-1 bg-background">
+            {/* GPS Timeout / Services Disabled Overlay */}
+            {(showGpsTimeout || gpsServicesDisabled) && (
+                <View className="absolute inset-0 bg-black/60 items-center justify-center px-6 z-50">
+                    <View className="bg-white rounded-2xl p-6 items-center w-full max-w-sm">
+                        <Ionicons name="location-outline" size={48} color="#FE5035" style={{ marginBottom: 16 }} />
+                        <Text className="text-lg font-bold text-center mb-2">
+                            {gpsServicesDisabled ? 'Location Services Disabled' : 'Still finding your location'}
+                        </Text>
+                        <Text className="text-secondary text-center mb-6">
+                            {gpsServicesDisabled 
+                                ? 'Please enable Location Services in your system settings to continue.' 
+                                : 'Check that Location Services are turned on and you have a clear view of the sky.'}
+                        </Text>
+                        {gpsServicesDisabled ? (
+                            <Button title="Open Settings" onPress={handleOpenSettings} className="w-full" />
+                        ) : (
+                            <Button title="Retry" onPress={handleRetryGPS} className="w-full" />
+                        )}
+                    </View>
+                </View>
+            )}
+
             {/* Full-screen Map — Phase 6A: this screen is the first
                 NavigationMap host. The engine (CameraController, driven by
                 NavigationStore) now owns every marker/camera decision this
@@ -351,7 +420,7 @@ export default function DriverNavigationScreen() {
                 {/* Speed + voice-guidance toggle */}
                 {navigationEnabled && (
                     <View className="absolute bottom-40 left-5 gap-3" pointerEvents="auto">
-                        <NavigationSpeedWidget />
+                        {tripStatus !== 'navigating_to_pickup' && <NavigationSpeedWidget />}
                         <NavigationVoiceToggle />
                     </View>
                 )}
@@ -361,12 +430,14 @@ export default function DriverNavigationScreen() {
                 {/* Bottom content */}
                 <View className="flex-1 justify-end px-5 pb-4" pointerEvents="box-none">
                     {/* onLayout reports whichever card (or neither) is
-                        currently rendered below — this View is unconditional,
-                        so it collapses to 0 height and re-reports correctly
-                        when tripStatus changes (Phase 7B chrome wiring). */}
-                    <View pointerEvents="auto" onLayout={handleBottomCardLayout}>
+                        currently rendered below. We conditionally attach it
+                        so it doesn't conflict with DriverActiveTripCard's onLayout. */}
+                    <View 
+                        pointerEvents="auto" 
+                        onLayout={!(tripStatus === 'navigating_to_pickup' && navigationEnabled) ? handleBottomCardLayout : undefined}
+                    >
                         {/* Navigating to Pickup */}
-                        {tripStatus === 'navigating_to_pickup' && (
+                        {tripStatus === 'navigating_to_pickup' && !navigationEnabled && (
                             <Card variant="default" className="mb-4 shadow-xl">
                                 {/* Customer Info */}
                                 <View className="flex-row items-center mb-4">
@@ -430,27 +501,19 @@ export default function DriverNavigationScreen() {
 
                                 {/* Action Buttons */}
                                 <View className="gap-3">
-                                    {!navigationEnabled ? (
-                                        <Button
-                                            variant="primary"
-                                            leftIcon="navigate"
-                                            onPress={handleStartPickup}
-                                            fullWidth
-                                        >
-                                            Start Pickup
-                                        </Button>
-                                    ) : (
-                                        <RideActionSlider
-                                            key={`arrival-${arrivalAttempt}`}
-                                            label="Slide to Arrive"
-                                            onComplete={handleArrived}
-                                            isLoading={isConfirmingArrival}
-                                        />
-                                    )}
-
+                                    <Button
+                                        variant="primary"
+                                        leftIcon="navigate"
+                                        onPress={handleStartPickup}
+                                        fullWidth
+                                    >
+                                        Start Pickup
+                                    </Button>
                                 </View>
                             </Card>
                         )}
+
+
 
 
 
@@ -498,6 +561,27 @@ export default function DriverNavigationScreen() {
                     </View>
                 </View>
             </SafeAreaView >
+
+            {/* Slide to Arrive card — pulled out of SafeAreaView so it can attach edge-to-edge 
+                and manage its own bottom inset exactly like trip.tsx */}
+            {tripStatus === 'navigating_to_pickup' && navigationEnabled && (
+                <DriverActiveTripCard
+                    distance={routeDistanceText || `${distance} km`}
+                    arrivalTime={arrivalTime}
+                    duration={formatTime(elapsedPickupTime)}
+                    customerName={currentTrip.customerName}
+                    customerRating={currentTrip.customerRating}
+                    pickupAddress={currentTrip.pickup.address}
+                    destinationAddress={currentTrip.destination.address}
+                    fare={currentTrip.estimatedFare}
+                    sliderLabel="Slide to Arrive"
+                    onSliderComplete={handleArrived}
+                    onCallCustomer={handleCallCustomer}
+                    onChatCustomer={() => router.push(`/chat/${currentTrip.id}`)}
+                    isLoadingAction={isConfirmingArrival}
+                    onLayout={handleBottomCardLayout}
+                />
+            )}
         </View >
     );
 }

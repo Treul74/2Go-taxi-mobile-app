@@ -7,8 +7,9 @@ import {
     NavigationRoadName,
     NavigationSpeedWidget,
     NavigationTurnBanner,
+    DriverActiveTripCard,
 } from '@/components/navigation';
-import { RideActionSlider } from '@/components/ui';
+// import { RideActionSlider } from '@/components/ui';
 import { useDriverTelemetryPing } from '@/hooks';
 import { calculateDistanceKm } from '@/lib/distance';
 import * as GPSManager from '@/navigation/NavigationEngine/GPSManager';
@@ -25,9 +26,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Animated, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
-const CARD_COLLAPSED_HEIGHT = 180;
-const CARD_EXPANDED_HEIGHT = 420;
-
+// Constants moved to DriverActiveTripCard
 /**
  * Driver Trip Screen
  * Active trip in progress - shows route to destination
@@ -53,20 +52,6 @@ export default function DriverTripScreen() {
     const heading = useHeading();
 
     const [elapsedTime, setElapsedTime] = useState(0);
-    const [isExpanded, setIsExpanded] = useState(false);
-    const insets = useSafeAreaInsets();
-    const overlayAnim = useRef(new Animated.Value(CARD_COLLAPSED_HEIGHT + 16)).current;
-
-    // Slides the speed/compass overlays up as the trip card expands, so they
-    // never end up hidden behind (or overlapping) it.
-    useEffect(() => {
-        Animated.spring(overlayAnim, {
-            toValue: isExpanded ? CARD_EXPANDED_HEIGHT + 16 : CARD_COLLAPSED_HEIGHT + 16,
-            useNativeDriver: false,
-            friction: 8,
-            tension: 40,
-        }).start();
-    }, [isExpanded]);
 
     // Actual GPS distance travelled so far this trip (accumulated from
     // consecutive location fixes below), used only for the final fare
@@ -334,315 +319,22 @@ export default function DriverTripScreen() {
                 <NavigationControls />
             </View>
 
-            {/* Speed display — bottom-left, above the trip card */}
-            <Animated.View
-                pointerEvents="none"
-                style={{
-                    position: 'absolute',
-                    left: 16,
-                    bottom: Animated.add(overlayAnim, 20),
-                    zIndex: 10,
-                }}
-            >
-                <NavigationSpeedWidget speedLimitKph={60} />
-            </Animated.View>
+            {/* Speed display and bottom card */}
+            <DriverActiveTripCard
+                distance={`${distance} km`}
+                arrivalTime={arrivalTime}
+                duration={formatTime(elapsedTime)}
+                customerName={currentTrip.customerName}
+                customerRating={currentTrip.customerRating}
+                pickupAddress={currentTrip.pickup?.address}
+                destinationAddress={currentTrip.destination.address}
+                fare={currentTrip.estimatedFare}
+                sliderLabel="SLIDE TO COMPLETE TRIP"
+                onSliderComplete={handleSliderComplete}
+                onCallCustomer={handleCallCustomer}
+                onChatCustomer={handleChatCustomer}
+            />
 
-            {/* Bottom trip card — collapsed shows stats only, expanded adds customer/pickup/dropoff/fare */}
-            <View style={[styles.card, { paddingBottom: insets.bottom || 16 }]}>
-                {/* Drag handle pill */}
-                <View style={styles.dragHandleWrap}>
-                    <View style={styles.dragHandle} />
-                </View>
-
-                {/* Stats row — always visible */}
-                <View style={styles.statsRow}>
-                    <View style={styles.statItem}>
-                        <Ionicons name="repeat-outline" size={20} color="#7B8387" />
-                        <Text style={styles.statValue}>{distance} km</Text>
-                        <Text style={styles.statLabel}>Distance</Text>
-                    </View>
-
-                    <View style={styles.statItem}>
-                        <Ionicons name="time-outline" size={20} color="#7B8387" />
-                        <Text style={styles.statValue}>{arrivalTime}</Text>
-                        <Text style={styles.statLabel}>Arrival</Text>
-                    </View>
-
-                    <View style={styles.statItem}>
-                        <Ionicons name="stopwatch-outline" size={20} color="#7B8387" />
-                        <Text style={styles.statValue}>{formatTime(elapsedTime)}</Text>
-                        <Text style={styles.statLabel}>Duration</Text>
-                    </View>
-
-                    <Pressable onPress={() => setIsExpanded((prev) => !prev)} style={styles.expandToggle}>
-                        <Ionicons name={isExpanded ? 'chevron-down' : 'chevron-up'} size={20} color="#26344F" />
-                    </Pressable>
-                </View>
-
-                {/* Expanded content — customer info, pickup/dropoff, fare */}
-                {isExpanded && (
-                    <View style={styles.expandedContent}>
-                        {/* Customer row */}
-                        <View style={styles.customerRow}>
-                            <View style={styles.avatar}>
-                                <Ionicons name="person" size={28} color="#7B8387" />
-                            </View>
-
-                            <View style={{ flex: 1 }}>
-                                <Text style={styles.customerName}>{currentTrip.customerName}</Text>
-                                <View style={styles.ratingRow}>
-                                    <Ionicons name="star" size={12} color="#FFB800" />
-                                    <Text style={styles.ratingText}>{currentTrip.customerRating ?? '5.0'}</Text>
-                                </View>
-                            </View>
-
-                            <View style={styles.actionButtons}>
-                                <View style={styles.actionButtonWrap}>
-                                    <Pressable onPress={handleCallCustomer} style={styles.actionButton}>
-                                        <Ionicons name="call" size={20} color="#26344F" />
-                                    </Pressable>
-                                    <Text style={styles.actionButtonLabel}>Call</Text>
-                                </View>
-
-                                <View style={styles.actionButtonWrap}>
-                                    <Pressable onPress={handleChatCustomer} style={styles.actionButton}>
-                                        <Ionicons name="chatbubble" size={20} color="#26344F" />
-                                    </Pressable>
-                                    <Text style={styles.actionButtonLabel}>Chat</Text>
-                                </View>
-
-                                <View style={styles.actionButtonWrap}>
-                                    <Pressable onPress={() => { }} style={styles.actionButton}>
-                                        <Ionicons name="ellipsis-vertical" size={20} color="#26344F" />
-                                    </Pressable>
-                                    <Text style={styles.actionButtonLabel}>More</Text>
-                                </View>
-                            </View>
-                        </View>
-
-                        {/* Pickup row */}
-                        <View style={styles.locationRow}>
-                            <View style={styles.locationDotColumn}>
-                                <View style={styles.pickupDot} />
-                                <View style={styles.locationConnector} />
-                            </View>
-                            <View style={{ flex: 1 }}>
-                                <Text style={styles.locationAddress}>
-                                    {currentTrip.pickup?.address ?? 'Current location'}
-                                </Text>
-                                <Text style={styles.locationLabel}>Pickup</Text>
-                            </View>
-                        </View>
-
-                        {/* Dropoff row */}
-                        <View style={[styles.locationRow, { marginBottom: 16 }]}>
-                            <View style={{ marginRight: 12, marginTop: 4 }}>
-                                <View style={styles.dropoffDot} />
-                            </View>
-                            <View style={{ flex: 1 }}>
-                                <Text style={styles.locationAddress}>{currentTrip.destination.address}</Text>
-                                <Text style={styles.locationLabel}>Drop-off</Text>
-                            </View>
-
-                            {/* Fare pill */}
-                            <View style={styles.farePill}>
-                                <View style={styles.fareMethodRow}>
-                                    <Ionicons name="cash-outline" size={14} color="#7B8387" />
-                                    <Text style={styles.fareMethodText}>Cash</Text>
-                                </View>
-                                <Text style={styles.fareAmount}>K{currentTrip.estimatedFare}</Text>
-                            </View>
-                        </View>
-                    </View>
-                )}
-
-                {/* Slide to complete — always visible */}
-                <View style={styles.sliderWrap}>
-                    <RideActionSlider
-                        label="SLIDE TO COMPLETE TRIP"
-                        onComplete={handleSliderComplete}
-                    />
-                </View>
-            </View>
         </View>
     );
 }
-
-const styles = StyleSheet.create({
-    card: {
-        position: 'absolute',
-        bottom: 0,
-        left: 0,
-        right: 0,
-        backgroundColor: 'white',
-        borderTopLeftRadius: 28,
-        borderTopRightRadius: 28,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: -4 },
-        shadowOpacity: 0.12,
-        shadowRadius: 16,
-        elevation: 20,
-    },
-    dragHandleWrap: {
-        alignItems: 'center',
-        paddingTop: 10,
-        paddingBottom: 4,
-    },
-    dragHandle: {
-        width: 40,
-        height: 4,
-        borderRadius: 2,
-        backgroundColor: '#E5E7EB',
-    },
-    statsRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        paddingHorizontal: 24,
-        paddingVertical: 12,
-    },
-    statItem: {
-        alignItems: 'center',
-    },
-    statValue: {
-        color: '#26344F',
-        fontWeight: 'bold',
-        fontSize: 18,
-        marginTop: 4,
-    },
-    statLabel: {
-        color: '#7B8387',
-        fontSize: 12,
-        marginTop: 2,
-    },
-    expandToggle: {
-        width: 40,
-        height: 40,
-        borderRadius: 20,
-        backgroundColor: '#F3F4F6',
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    expandedContent: {
-        borderTopWidth: 1,
-        borderTopColor: '#F3F4F6',
-        paddingHorizontal: 20,
-        paddingTop: 16,
-    },
-    customerRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginBottom: 16,
-    },
-    avatar: {
-        width: 52,
-        height: 52,
-        borderRadius: 26,
-        backgroundColor: '#F3F4F6',
-        alignItems: 'center',
-        justifyContent: 'center',
-        overflow: 'hidden',
-        marginRight: 12,
-    },
-    customerName: {
-        color: '#26344F',
-        fontWeight: 'bold',
-        fontSize: 16,
-    },
-    ratingRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 6,
-        marginTop: 2,
-    },
-    ratingText: {
-        color: '#7B8387',
-        fontSize: 12,
-    },
-    actionButtons: {
-        flexDirection: 'row',
-        gap: 8,
-    },
-    actionButtonWrap: {
-        alignItems: 'center',
-    },
-    actionButton: {
-        width: 44,
-        height: 44,
-        borderRadius: 22,
-        backgroundColor: '#F3F4F6',
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    actionButtonLabel: {
-        color: '#7B8387',
-        fontSize: 10,
-        marginTop: 2,
-    },
-    locationRow: {
-        flexDirection: 'row',
-        alignItems: 'flex-start',
-        marginBottom: 12,
-    },
-    locationDotColumn: {
-        alignItems: 'center',
-        marginRight: 12,
-        marginTop: 4,
-    },
-    pickupDot: {
-        width: 12,
-        height: 12,
-        borderRadius: 6,
-        backgroundColor: '#00D26A',
-    },
-    locationConnector: {
-        width: 1,
-        height: 24,
-        backgroundColor: '#E5E7EB',
-        marginTop: 2,
-    },
-    dropoffDot: {
-        width: 12,
-        height: 12,
-        borderRadius: 6,
-        backgroundColor: '#FE5035',
-    },
-    locationAddress: {
-        color: '#26344F',
-        fontWeight: '600',
-        fontSize: 14,
-    },
-    locationLabel: {
-        color: '#7B8387',
-        fontSize: 12,
-        marginTop: 2,
-    },
-    farePill: {
-        backgroundColor: '#FFF5F3',
-        borderRadius: 12,
-        paddingHorizontal: 12,
-        paddingVertical: 8,
-        marginLeft: 8,
-        alignItems: 'flex-end',
-    },
-    fareMethodRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 4,
-    },
-    fareMethodText: {
-        color: '#7B8387',
-        fontSize: 11,
-    },
-    fareAmount: {
-        color: '#26344F',
-        fontWeight: 'bold',
-        fontSize: 15,
-        marginTop: 2,
-    },
-    sliderWrap: {
-        paddingHorizontal: 16,
-        paddingTop: 8,
-        paddingBottom: 8,
-    },
-});
