@@ -129,7 +129,7 @@ const CAMERA_PROFILES: Readonly<Record<NavigationMode, CameraProfile>> = {
     autoFit: false,
   },
 
-  // "Vehicle stops. Camera zooms slightly closer. Passenger pin becomes
+  // "Vehicle stops. Camera zooms slightly closer. Customer pin becomes
   // focus." No rotation/pitch value is given for a stopped vehicle, so the
   // camera settles flat and north-up rather than holding a driving tilt.
   [NavigationMode.ARRIVED_PICKUP]: {
@@ -292,6 +292,63 @@ export function setChrome(partial: Partial<AutoFitChrome>): void {
 /** The camera pose this controller last actually applied, or null before the first one. For diagnostics/debug overlays only — nothing in the engine reads this to make decisions. */
 export function getCurrentPose(): CameraAnimationState | null {
   return lastAppliedPose;
+}
+
+/** Street-level zoom for a manual "center on this point" request — matches the app's existing "premium street-level zoom" convention (the same visual tier as `dynamicZoomForSpeed`'s "city driving" value) rather than a fit-derived one, since there's no route/bounds to fit here. */
+const RECENTER_ON_LOCATION_ZOOM = 17.5;
+
+/**
+ * Applies one "center on this point" camera move to an explicitly-given map
+ * handle that is NOT this controller's tracked singleton, and never should
+ * be — for a self-contained, non-trip map surface that will never be
+ * `attachMap()`-registered (e.g. `MapPickerModal`'s own short-lived
+ * coordinate-picker `MapView` — see that file's `handleGoToMyLocation`).
+ * Per AGENTS.md's Camera Rules, no screen may call
+ * `animateCamera()`/`animateToRegion()` itself; this is that request's
+ * engine-owned equivalent for a map the singleton pipeline (`recompute`/
+ * `applyPose`/`recenterOnLocation`, all below) doesn't and shouldn't track
+ * — attaching a transient modal's map as the singleton would risk stealing
+ * camera ownership from whatever trip/booking screen is mounted underneath
+ * it, and detaching on close would leave that screen's camera un-driven
+ * until its next focus change (see CustomerHome's own
+ * `attachMap`/`useFocusEffect` wiring for what that singleton is actually
+ * for). Deliberately has no store bookkeeping to update, unlike `applyPose`
+ * — this map's pose isn't what `NavigationCompass` or any other store
+ * consumer should ever reflect.
+ */
+export function animateCameraTo(handle: CameraControllerMapHandle, point: LatLng, zoom: number = RECENTER_ON_LOCATION_ZOOM): void {
+  handle.animateCamera(
+    { center: point, heading: 0, pitch: 0, zoom },
+    { duration: RECENTER_DURATION }
+  );
+}
+
+/**
+ * One-shot "center the camera on this point" request for this controller's
+ * own tracked singleton map — for screens whose attached map has no
+ * mode-driven camera opinion right now (Bible/AGENTS.md: `IDLE`/`OFFLINE`
+ * are deliberately "no camera opinion" in `CAMERA_PROFILES` above, e.g. a
+ * Customer's home map before any trip exists) but still need a "go to my
+ * location" affordance. Applied through the same `mapHandle`/`applyPose`
+ * `recompute()` drives (see that function's doc), just outside the
+ * mode/cameraState-driven pipeline, since a manual recenter tap isn't a
+ * trip-lifecycle event and doesn't fit `NavigationMode`/`CameraState`'s
+ * vocabulary. No-ops if no map is currently attached.
+ */
+export function recenterOnLocation(point: LatLng, zoom: number = RECENTER_ON_LOCATION_ZOOM): void {
+  if (!mapHandle) return;
+
+  const pose: CameraAnimationState = {
+    center: point,
+    bearing: 0,
+    pitch: 0,
+    zoom,
+    padding: DEFAULT_EDGE_PADDING,
+    timestampMs: Date.now(),
+  };
+
+  const { mode, cameraState } = useNavigationStore.getState();
+  applyPose(pose, RECENTER_DURATION, mode, cameraState);
 }
 
 // ---------------------------------------------------------------------------
@@ -508,6 +565,44 @@ function dampPose(from: CameraAnimationState, target: CameraAnimationState, damp
   };
 }
 
+/**
+ * Applies one pose to the currently-attached singleton map and records it —
+ * the one place `recompute()`'s reactive pipeline and `recenterOnLocation()`'s
+ * direct one-shot request both end up, so neither can independently decide
+ * what "the camera just moved" means (Phase 9D camera runtime cleanup: these
+ * were previously two separate call sites, and only `recompute()`'s
+ * published `bearing`/`zoom`/`pitch` back into the store or updated
+ * `lastAppliedMode`/`lastAppliedCameraState` — `recenterOnLocation()`'s own
+ * copy silently skipped both, so `NavigationCompass`'s needle and the
+ * transition-vs-routine-tick bookkeeping could go stale after a manual
+ * recenter). Not used by `animateCameraTo()`, which deliberately operates on
+ * an explicitly-given, non-singleton handle (see its own doc) that has no
+ * store bookkeeping to update.
+ */
+function applyPose(pose: CameraAnimationState, durationMs: number, mode: NavigationMode, cameraState: NavigationState['cameraState']): void {
+  if (!mapHandle) return;
+
+  // `pose.padding` isn't sent here: react-native-maps' `animateCamera`
+  // camera object has no padding field (only `fitToCoordinates` does) —
+  // padding already did its job inside `autoFitPose`'s zoom calculation, so
+  // by this point it's fully baked into `pose.zoom`.
+  mapHandle.animateCamera(
+    { center: pose.center, heading: pose.bearing, pitch: pose.pitch, zoom: pose.zoom },
+    { duration: durationMs }
+  );
+
+  // Publishes what the camera is now doing back into the store —
+  // NavigationState.bearing/zoom/pitch existed but nothing wrote them before
+  // Phase 7, so NavigationCompass's needle (reads `bearing`) was permanently
+  // frozen at 0°. Read-only from every other consumer's perspective: this is
+  // the one place camera pose becomes store data.
+  useNavigationStore.setState({ bearing: pose.bearing, zoom: pose.zoom, pitch: pose.pitch });
+
+  lastAppliedPose = pose;
+  lastAppliedMode = mode;
+  lastAppliedCameraState = cameraState;
+}
+
 function recompute(state: NavigationState): void {
   if (!mapHandle) return;
 
@@ -570,25 +665,7 @@ function recompute(state: NavigationState): void {
 
   if (!shouldApply) return;
 
-  // `target.padding` isn't sent here: react-native-maps' `animateCamera`
-  // camera object has no padding field (only `fitToCoordinates` does) —
-  // padding already did its job inside `autoFitPose`'s zoom calculation, so
-  // by this point it's fully baked into `target.zoom`.
-  mapHandle.animateCamera(
-    { center: appliedPose.center, heading: appliedPose.bearing, pitch: appliedPose.pitch, zoom: appliedPose.zoom },
-    { duration: durationMs }
-  );
-
-  // Publishes what the camera is now doing back into the store —
-  // NavigationState.bearing/zoom/pitch existed but nothing wrote them before
-  // Phase 7, so NavigationCompass's needle (reads `bearing`) was permanently
-  // frozen at 0°. Read-only from every other consumer's perspective: this is
-  // the one place camera pose becomes store data.
-  useNavigationStore.setState({ bearing: appliedPose.bearing, zoom: appliedPose.zoom, pitch: appliedPose.pitch });
-
-  lastAppliedPose = appliedPose;
-  lastAppliedMode = state.mode;
-  lastAppliedCameraState = state.cameraState;
+  applyPose(appliedPose, durationMs, state.mode, state.cameraState);
 }
 
 // TODO(NavigationMap): call `attachMap(mapRef.current)` from `onMapReady`,

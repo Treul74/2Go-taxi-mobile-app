@@ -20,6 +20,7 @@ import {
     useDriverLocation,
     useHeading,
     useNavigationEnabled,
+    useOverviewRoute,
 } from '@/navigation/NavigationEngine/NavigationHooks';
 import { fetchRoute } from '@/navigation/NavigationEngine/RouteEngine';
 import { safeTransition } from '@/navigation/NavigationEngine/safeTransition';
@@ -55,6 +56,7 @@ export default function DriverNavigationScreen() {
     const driverLocation = useDriverLocation();
     const heading = useHeading();
     const route = useActiveRoute();
+    const overviewRoute = useOverviewRoute();
     const navigationEnabled = useNavigationEnabled();
     const routeCoordinates = route?.path ?? [];
     const routeDistanceText = route ? (route.distanceText ?? formatManeuverDistance(route.distanceMeters)) : null;
@@ -98,14 +100,16 @@ export default function DriverNavigationScreen() {
     }, [driverLocation, updateLocation]);
 
     // Phase 6A (Camera Runtime Activation): this screen is the first
-    // NavigationMap host, and CameraController's initial cameraState
-    // ('OVERVIEW') would otherwise resolve to an auto-fit pose instead of
-    // following the driver toward pickup. Requesting FOLLOW_DRIVER once on
-    // mount is the existing, Bible-documented action for this
-    // (`navigation.followDriver()`) — no new camera logic, just telling the
-    // already-built engine which of its existing intents applies here.
+    // NavigationMap host. Instead of calling navigation.followDriver() immediately,
+    // which would do nothing until GPS resolves, we now wait to fetch the
+    // overview route and call navigation.overview() to fit pickup and destination.
+    // Once GPS resolves, calculateRoute() will call navigation.followDriver().
     useEffect(() => {
-        navigation.followDriver();
+        // Only set to OVERVIEW if we don't have GPS yet, otherwise we might
+        // override an active follow state on re-mount.
+        if (!driverLocation) {
+            navigation.overview();
+        }
     }, []);
 
     // Redirect if no active trip
@@ -116,32 +120,31 @@ export default function DriverNavigationScreen() {
     }, [currentTrip]);
 
     const calculateRoute = async () => {
-        if (!driverLocation || !currentTrip) return;
-        // Guards against overlapping fetches — driverLocation updates every
-        // 1-2s from GPSManager and could otherwise re-trigger the auto-fetch
-        // effect below while a previous fetchRoute() is still in flight,
-        // letting an earlier failure land after a later success and flip
-        // routeError back to true despite a valid route already being stored.
+        if (!driverLocation || !currentTrip) {
+            if (__DEV__) {
+                console.warn('[DriverNavigation] calculateRoute aborted: missing data', {
+                    hasDriverLocation: !!driverLocation,
+                    hasCurrentTrip: !!currentTrip
+                });
+            }
+            return;
+        }
         if (isCalculating) return;
 
         setIsCalculating(true);
         setRouteError(false);
 
         try {
-            // Routing goes entirely through RouteEngine — the only file allowed
-            // to fetch/cache Directions (src/navigation/NavigationEngine/RouteEngine.ts).
             const fetchedRoute = await fetchRoute(driverLocation, currentTrip.pickup);
-
             if (!fetchedRoute) {
                 setRouteError(true);
                 return;
             }
-
-            // NavigationStore is the sole owner of route data (Phase 7R.4) —
-            // this screen renders routeCoordinates/routeDistanceText derived
-            // from useActiveRoute() above, not a local copy.
             useNavigationStore.getState().setRoute(fetchedRoute);
             setRouteError(false);
+            
+            // Once we have the live route, we follow the driver
+            navigation.followDriver();
         } catch (error) {
             console.error('Error calculating route:', error);
             setRouteError(true);
@@ -150,24 +153,35 @@ export default function DriverNavigationScreen() {
         }
     };
 
-    // Auto-calculate route on mount or location update if no route
+    // Auto-calculate live route on location update if no active route
     useEffect(() => {
         if (currentTrip && routeCoordinates.length === 0 && driverLocation) {
             calculateRoute();
         }
-    }, [currentTrip, driverLocation]); // simplified dependency
+    }, [currentTrip, driverLocation]);
+
+    // Fetch static overview route immediately
+    useEffect(() => {
+        if (currentTrip && !overviewRoute) {
+            fetchRoute(currentTrip.pickup, currentTrip.destination).then(fetchedRoute => {
+                if (fetchedRoute) {
+                    useNavigationStore.getState().setOverviewRoute(fetchedRoute);
+                    // Fit camera to the overview route while waiting for GPS
+                    if (!driverLocation) {
+                        navigation.overview();
+                    }
+                }
+            }).catch(error => {
+                console.error('Error fetching overview route:', error);
+            });
+        }
+    }, [currentTrip, overviewRoute]);
 
     const handleStartPickup = async () => {
-        // Runtime handoff (Phase 5.5B): makes the Navigation Runtime aware
-        // that navigation has started. Mode is normally already
-        // DRIVER_TO_PICKUP by the time this button is pressed (dispatched at
-        // Accept time — DriverDashboard.handleAcceptRequest), so this
-        // re-dispatch is typically a safeTransition-guarded no-op (DRIVER_TO_PICKUP
-        // has no legal self-loop — NavigationModes.ts). It's kept, not
-        // skipped, because it doubles as the recovery path if that earlier
-        // dispatch never landed (remount, race) — the only existing action
-        // that can (re)reach DRIVER_TO_PICKUP.
-        safeTransition(() => navigation.driverToPickup(driverLocation ?? undefined));
+        // The mode is already DRIVER_TO_PICKUP by the time this button is pressed 
+        // (dispatched at Accept time — DriverDashboard.handleAcceptRequest).
+        // Removing the redundant safeTransition(() => navigation.driverToPickup(...))
+        // that was throwing and swallowing NavigationTransitionError.
 
         // Engine-owned (Phase 7R.4): turn-by-turn banner / slider-vs-button
         // switch now reads NavigationStore.navigationEnabled instead of a
@@ -201,8 +215,8 @@ export default function DriverNavigationScreen() {
         }
     };
 
-    const handleCallPassenger = () => {
-        // In production, passenger phone would be in the trip data
+    const handleCallCustomer = () => {
+        // In production, customer phone would be in the trip data
         // For now using a placeholder
         const telUrl = `tel:+260971234567`;
 
@@ -354,21 +368,21 @@ export default function DriverNavigationScreen() {
                         {/* Navigating to Pickup */}
                         {tripStatus === 'navigating_to_pickup' && (
                             <Card variant="default" className="mb-4 shadow-xl">
-                                {/* Passenger Info */}
+                                {/* Customer Info */}
                                 <View className="flex-row items-center mb-4">
                                     <View className="w-12 h-12 rounded-full bg-accent/10 items-center justify-center">
                                         <Ionicons name="person" size={24} color="#FE5035" />
                                     </View>
                                     <View className="ml-3 flex-1">
                                         <Text className="text-primary font-bold text-lg">
-                                            {currentTrip.passengerName}
+                                            {currentTrip.customerName}
                                         </Text>
                                         <View className="flex-row items-center">
-                                            {currentTrip.passengerRating > 0 ? (
+                                            {currentTrip.customerRating > 0 ? (
                                                 <>
                                                     <Ionicons name="star" size={14} color="#FFB800" />
                                                     <Text className="text-secondary text-sm ml-1">
-                                                        {currentTrip.passengerRating.toFixed(1)}
+                                                        {currentTrip.customerRating.toFixed(1)}
                                                     </Text>
                                                 </>
                                             ) : (
@@ -378,7 +392,7 @@ export default function DriverNavigationScreen() {
                                     </View>
                                     {/* Call Button moved here */}
                                     <Pressable
-                                        onPress={handleCallPassenger}
+                                        onPress={handleCallCustomer}
                                         className="w-10 h-10 rounded-full bg-success/10 items-center justify-center ml-2 border border-success/20"
                                     >
                                         <Ionicons name="call" size={20} color="#10B981" />
@@ -418,14 +432,12 @@ export default function DriverNavigationScreen() {
                                 <View className="gap-3">
                                     {!navigationEnabled ? (
                                         <Button
-                                            variant={routeError ? "accent" : "primary"}
-                                            leftIcon={routeError ? "refresh" : "navigate"}
-                                            onPress={routeError ? calculateRoute : handleStartPickup}
+                                            variant="primary"
+                                            leftIcon="navigate"
+                                            onPress={handleStartPickup}
                                             fullWidth
-                                            disabled={isCalculating || (!routeCoordinates.length && !routeError)}
-                                            loading={isCalculating}
                                         >
-                                            {routeError ? "Retry Route" : "Start Pickup"}
+                                            Start Pickup
                                         </Button>
                                     ) : (
                                         <RideActionSlider
@@ -450,10 +462,10 @@ export default function DriverNavigationScreen() {
                                         <Ionicons name="hourglass-outline" size={40} color="#26344F" />
                                     </View>
                                     <Text className="text-primary font-bold text-xl mb-2">
-                                        Waiting for Passenger
+                                        Waiting for Customer
                                     </Text>
                                     <Text className="text-secondary text-center mb-2">
-                                        {currentTrip.passengerName}
+                                        {currentTrip.customerName}
                                     </Text>
                                     <Text className="text-secondary text-sm text-center mb-4">
                                         {currentTrip.pickup.address}

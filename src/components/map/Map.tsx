@@ -2,7 +2,7 @@ import type { Location } from '@/types';
 import type { VehicleMarkerVariant } from './markers/CarMarker';
 
 /**
- * A Transporter vehicle to render as an animated top-down car marker
+ * A Driver vehicle to render as an animated top-down car marker
  */
 export interface MapVehicle {
   /** Stable unique id (used as the React key — must not change between updates) */
@@ -33,6 +33,9 @@ export interface MapProps {
 
   /** Route polyline coordinates (if showRoute is true) */
   routeCoordinates?: Array<{ latitude: number; longitude: number }>;
+
+  /** Overview route polyline coordinates (e.g. pickup -> destination, drawn alongside the active route if provided) */
+  overviewRouteCoordinates?: Array<{ latitude: number; longitude: number }>;
 
   /** Route steps for turn-by-turn navigation (optional, for enhanced visualization) */
   routeSteps?: Array<{
@@ -75,6 +78,9 @@ export interface MapProps {
   /** Only 'offline' changes rendering (dims the marker); defaults to 'comfort' */
   driverVehicleVariant?: VehicleMarkerVariant;
 
+  /** Indicates if the map is being viewed by the driver it is tracking */
+  isDriverOwnMap?: boolean;
+
   /** Render the driver marker as a heading-aware directional arrow instead of the top-down car icon (used during turn-by-turn navigation) */
   navigationArrowMode?: boolean;
 
@@ -84,14 +90,14 @@ export interface MapProps {
   /** Render the pickup marker as a large pulsing search circle instead of the default pin (used while matching a driver) */
   showSearchPulse?: boolean;
 
-  /** Nearby Transporter vehicles rendered as animated car markers (native only) */
+  /** Nearby Driver vehicles rendered as animated car markers (native only) */
   vehicles?: MapVehicle[];
 
   /** Disable built-in driver auto-follow (for custom camera control) */
   autoFollowDriver?: boolean;
 
-  /** Passenger H3 Hexagon Index (Resolution 9) */
-  passengerHex9?: string | null;
+  /** Customer H3 Hexagon Index (Resolution 9) */
+  customerHex9?: string | null;
 
   /** Show H3 Grid overlay (for visualization) */
   showH3Grid?: boolean;

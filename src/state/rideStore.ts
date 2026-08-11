@@ -1,5 +1,5 @@
 import { getHex9 } from '@/core/spatialEngine';
-import { vehicleIcons } from '@/features/passenger/components/VehicleCard';
+import { vehicleIcons } from '@/features/customer/components/VehicleCard';
 import { getActiveFareSurcharge } from '@/lib/fareSurcharge';
 import { getDistanceMatrix } from '@/lib/google/mapsApi';
 import { sendPushNotification } from '@/lib/notifications';
@@ -66,7 +66,7 @@ interface RideState {
   pickupServiceAreaAvailable: boolean | null;
 
   // H3 Spatial Indexing
-  passengerHex9: string | null; // Current passenger location hex
+  customerHex9: string | null; // Current customer location hex
 
   // Route
   routeCoordinates: Array<{ latitude: number; longitude: number }>;
@@ -161,7 +161,7 @@ export const useRideStore = create<RideState>((set, get) => ({
   destination: null,
   isPickupManual: false,
   pickupServiceAreaAvailable: null,
-  passengerHex9: null,
+  customerHex9: null,
   routeCoordinates: [],
   routeDistance: null,
   routeDuration: null,
@@ -185,7 +185,7 @@ export const useRideStore = create<RideState>((set, get) => ({
   setVehicle: (vehicle) => set({ selectedVehicle: vehicle }),
   setStatus: (status) => {
     const { status: prev, orderId } = get();
-    // The matching overlay is dismissed via setStatus('idle') (PassengerHome),
+    // The matching overlay is dismissed via setStatus('idle') (CustomerHome),
     // so the pending backend order and its realtime subscription must be torn
     // down here, not just the local status flag.
     if (prev === 'matching' && status === 'idle' && orderId) {
@@ -201,12 +201,12 @@ export const useRideStore = create<RideState>((set, get) => ({
   setPaymentMethod: (method) => set({ paymentMethod: method }),
   setPickup: (location, manual = false) => {
     // Calculate hex9 if location is provided
-    const passengerHex9 = location ? getHex9(location.latitude, location.longitude) : null;
+    const customerHex9 = location ? getHex9(location.latitude, location.longitude) : null;
     // Every pickup change (GPS fix, manual search, map pin, or a future
     // recipient-specific pickup) re-checks Checkpoint 2 below -- reset to
     // "unknown" here so a stale true/false from the previous pickup never
     // briefly shows against the new one while the RPC is in flight.
-    set({ pickup: location, isPickupManual: manual, passengerHex9, pickupServiceAreaAvailable: null });
+    set({ pickup: location, isPickupManual: manual, customerHex9, pickupServiceAreaAvailable: null });
 
     if (!location) return;
 
@@ -720,7 +720,7 @@ export const useRideStore = create<RideState>((set, get) => ({
       destination: null,
       isPickupManual: false,
       pickupServiceAreaAvailable: null,
-      passengerHex9: null,
+      customerHex9: null,
       scheduledFor: null,
       bookingFor: null,
       driverInstructions: '',

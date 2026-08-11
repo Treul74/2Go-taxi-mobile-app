@@ -1,5 +1,5 @@
 import { SkeletonBox } from '@/components/ui';
-import { LocationSearchModal, MapPickerModal } from '@/features/passenger/components';
+import { LocationSearchModal, MapPickerModal } from '@/features/customer/components';
 import { useCurrentLocation } from '@/hooks/useCurrentLocation';
 import { formatDisplayAddress, formatShortAddress } from '@/lib';
 import { useRideStore } from '@/state';
@@ -24,7 +24,7 @@ const RESTAURANTS = [
 /**
  * Discover / landing screen shown right after login, before the map-based
  * home screen. Picking a destination in "Where to?" is what carries the
- * passenger into (tabs) — everything else here is browse-only.
+ * customer into (tabs) — everything else here is browse-only.
  */
 export function DiscoverScreen() {
   const { location: currentLocation, loading: locationLoading } = useCurrentLocation();

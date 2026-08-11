@@ -114,11 +114,11 @@ function findNearbyDrivers() {
 
 ### Example 3: Check if two locations are in the same hexagon
 ```typescript
-const passenger = useCurrentLocation();
+const customer = useCurrentLocation();
 const driver = { hex9: "89754e64992ffff" };
 
-if (passenger.location?.hex9 === driver.hex9) {
-  console.log("Driver and passenger are in the same 170m hexagon!");
+if (customer.location?.hex9 === driver.hex9) {
+  console.log("Driver and customer are in the same 170m hexagon!");
 }
 ```
 
@@ -138,7 +138,7 @@ if (passenger.location?.hex9 === driver.hex9) {
 ## Next Steps
 
 You can now use `hex9` for:
-1. **Driver-passenger proximity matching**
+1. **Driver-customer proximity matching**
 2. **Geospatial clustering of ride requests**
 3. **Service area coverage analysis**
 4. **Heatmap generation**

@@ -29,7 +29,7 @@ export default function DriverTripSummaryScreen() {
 
   if (!lastTripSummary) return null;
 
-  const { passengerName, distance, duration, waitingDuration, fareAmount, serviceFeeAmount, netEarnings } = lastTripSummary;
+  const { customerName, distance, duration, waitingDuration, fareAmount, serviceFeeAmount, netEarnings } = lastTripSummary;
 
   return (
     <SafeAreaView className="flex-1 bg-background items-center justify-center px-6" edges={['top', 'bottom']}>
@@ -42,7 +42,7 @@ export default function DriverTripSummaryScreen() {
             Trip Completed
           </Text>
           <Text className="text-secondary text-sm mb-6">
-            {passengerName} &middot; {distance.toFixed(1)} km &middot; {duration} min
+            {customerName} &middot; {distance.toFixed(1)} km &middot; {duration} min
           </Text>
 
           <View className="w-full bg-gray-100 rounded-3xl p-4 mb-6">

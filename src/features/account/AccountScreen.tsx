@@ -73,6 +73,7 @@ export function AccountScreen({ onBack }: AccountScreenProps) {
     await insforge.auth.signOut();
     insforge.setAccessToken(null);
     await setAuthed(false);
+    setRole('passenger');
     router.replace('/auth');
   };
 

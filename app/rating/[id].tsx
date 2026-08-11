@@ -1,5 +1,7 @@
 import { Button, RatingStars } from '@/components/ui';
 import { calculateDistanceKm } from '@/lib/distance';
+import { useNavigation } from '@/navigation/NavigationEngine/hooks/useNavigation';
+import { safeTransition } from '@/navigation/NavigationEngine/safeTransition';
 import { useRideStore } from '@/state';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -16,6 +18,7 @@ export default function RatingScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const rideHistory = useRideStore((state) => state.rideHistory);
   const rateRide = useRideStore((state) => state.rateRide);
+  const navigation = useNavigation();
 
   const [rating, setRating] = useState(0);
   const [drivingSkill, setDrivingSkill] = useState(0);
@@ -32,10 +35,12 @@ export default function RatingScreen() {
       await rateRide(id, rating, comment.trim() || undefined);
       setSubmitting(false);
     }
+    safeTransition(() => navigation.reset());
     router.replace('/discover');
   };
 
   const handleSkip = () => {
+    safeTransition(() => navigation.reset());
     router.replace('/discover');
   };
 

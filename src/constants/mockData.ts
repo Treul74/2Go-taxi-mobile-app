@@ -1,6 +1,6 @@
 /**
  * Centralized mock data for development and testing
- * Contains driver profiles, passenger profiles, and other mock data
+ * Contains driver profiles, customer profiles, and other mock data
  */
 
 import type { DriverInfo, UserProfile } from '@/types';
@@ -52,9 +52,9 @@ export const mockDrivers: DriverInfo[] = [
 ];
 
 /**
- * Mock passenger profiles with avatars
+ * Mock customer profiles with avatars
  */
-export const mockPassengers: UserProfile[] = [
+export const mockCustomers: UserProfile[] = [
   {
     id: 'user_001',
     firstName: 'John',
@@ -98,10 +98,10 @@ export function getDriverById(id: string): DriverInfo | undefined {
 }
 
 /**
- * Get passenger by ID
+ * Get customer by ID
  */
-export function getPassengerById(id: string): UserProfile | undefined {
-  return mockPassengers.find((p) => p.id === id);
+export function getCustomerById(id: string): UserProfile | undefined {
+  return mockCustomers.find((p) => p.id === id);
 }
 
 /**

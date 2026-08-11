@@ -86,7 +86,7 @@ export function RequestCard({ request, onAccept, onDecline }: RequestCardProps) 
                 <Ionicons name="car" size={20} color="#FE5035" />
               </View>
               <View className="ml-3">
-                {/* Passenger identity isn't visible until the driver accepts */}
+                {/* Customer identity isn't visible until the driver accepts */}
                 <Text className="text-primary font-semibold">
                   New Ride Request
                 </Text>

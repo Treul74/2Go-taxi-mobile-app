@@ -54,7 +54,7 @@ src/navigation/NavigationEngine/
 ```tsx
 import { useNavigation } from '@/navigation/NavigationEngine/hooks/useNavigation';
 
-function PassengerHome() {
+function CustomerHome() {
   const navigation = useNavigation();
 
   const onLocationsSelected = (pickup: LatLng, destination: LatLng) => {

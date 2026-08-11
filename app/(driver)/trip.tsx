@@ -256,7 +256,7 @@ export default function DriverTripScreen() {
         const waitingMin = Math.ceil(waitingDuration / 60);
 
         const receiptData = {
-            passengerName: currentTrip.passengerName,
+            customerName: currentTrip.customerName,
             distance: distanceKm,
             duration: durationMin,
             waitingDuration: waitingMin,
@@ -279,8 +279,8 @@ export default function DriverTripScreen() {
         router.replace('/(driver)/trip-summary');
     };
 
-    const handleCallPassenger = () => {
-        // In production, passenger phone would be in the trip data
+    const handleCallCustomer = () => {
+        // In production, customer phone would be in the trip data
         const telUrl = `tel:+260971234567`;
 
         Linking.openURL(telUrl).catch(() => {
@@ -288,7 +288,7 @@ export default function DriverTripScreen() {
         });
     };
 
-    const handleChatPassenger = () => {
+    const handleChatCustomer = () => {
         router.push(`/chat/${currentTrip.id}`);
     };
 
@@ -347,7 +347,7 @@ export default function DriverTripScreen() {
                 <NavigationSpeedWidget speedLimitKph={60} />
             </Animated.View>
 
-            {/* Bottom trip card — collapsed shows stats only, expanded adds passenger/pickup/dropoff/fare */}
+            {/* Bottom trip card — collapsed shows stats only, expanded adds customer/pickup/dropoff/fare */}
             <View style={[styles.card, { paddingBottom: insets.bottom || 16 }]}>
                 {/* Drag handle pill */}
                 <View style={styles.dragHandleWrap}>
@@ -379,33 +379,33 @@ export default function DriverTripScreen() {
                     </Pressable>
                 </View>
 
-                {/* Expanded content — passenger info, pickup/dropoff, fare */}
+                {/* Expanded content — customer info, pickup/dropoff, fare */}
                 {isExpanded && (
                     <View style={styles.expandedContent}>
-                        {/* Passenger row */}
-                        <View style={styles.passengerRow}>
+                        {/* Customer row */}
+                        <View style={styles.customerRow}>
                             <View style={styles.avatar}>
                                 <Ionicons name="person" size={28} color="#7B8387" />
                             </View>
 
                             <View style={{ flex: 1 }}>
-                                <Text style={styles.passengerName}>{currentTrip.passengerName}</Text>
+                                <Text style={styles.customerName}>{currentTrip.customerName}</Text>
                                 <View style={styles.ratingRow}>
                                     <Ionicons name="star" size={12} color="#FFB800" />
-                                    <Text style={styles.ratingText}>{currentTrip.passengerRating ?? '5.0'}</Text>
+                                    <Text style={styles.ratingText}>{currentTrip.customerRating ?? '5.0'}</Text>
                                 </View>
                             </View>
 
                             <View style={styles.actionButtons}>
                                 <View style={styles.actionButtonWrap}>
-                                    <Pressable onPress={handleCallPassenger} style={styles.actionButton}>
+                                    <Pressable onPress={handleCallCustomer} style={styles.actionButton}>
                                         <Ionicons name="call" size={20} color="#26344F" />
                                     </Pressable>
                                     <Text style={styles.actionButtonLabel}>Call</Text>
                                 </View>
 
                                 <View style={styles.actionButtonWrap}>
-                                    <Pressable onPress={handleChatPassenger} style={styles.actionButton}>
+                                    <Pressable onPress={handleChatCustomer} style={styles.actionButton}>
                                         <Ionicons name="chatbubble" size={20} color="#26344F" />
                                     </Pressable>
                                     <Text style={styles.actionButtonLabel}>Chat</Text>
@@ -529,7 +529,7 @@ const styles = StyleSheet.create({
         paddingHorizontal: 20,
         paddingTop: 16,
     },
-    passengerRow: {
+    customerRow: {
         flexDirection: 'row',
         alignItems: 'center',
         marginBottom: 16,
@@ -544,7 +544,7 @@ const styles = StyleSheet.create({
         overflow: 'hidden',
         marginRight: 12,
     },
-    passengerName: {
+    customerName: {
         color: '#26344F',
         fontWeight: 'bold',
         fontSize: 16,

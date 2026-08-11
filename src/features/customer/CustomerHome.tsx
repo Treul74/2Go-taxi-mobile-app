@@ -6,10 +6,17 @@ import { BackButton, IconButton } from '@/components/ui';
 import { colors } from '@/constants/theme';
 import { useSnappedLocation } from '@/hooks/useSnappedLocation';
 import { calculateDistanceMeters } from '@/lib/distance';
+import { attachMap, detachMap, recenterOnLocation, setChrome, setViewportSize } from '@/navigation/NavigationEngine/CameraController';
 import * as GPSManager from '@/navigation/NavigationEngine/GPSManager';
+import { useNavigation } from '@/navigation/NavigationEngine/hooks/useNavigation';
+import { useNavigationMode } from '@/navigation/NavigationEngine/NavigationHooks';
+import { NavigationMode } from '@/navigation/NavigationEngine/NavigationModes';
+import { useNavigationStore } from '@/navigation/NavigationEngine/NavigationStore';
+import { safeTransition } from '@/navigation/NavigationEngine/safeTransition';
 import { findNearbyDrivers } from '@/services/discoveryEngine';
 import { useRideStore, useSettingsStore } from '@/state';
 import type { CancellationReason, Location as GeoLocation } from '@/types';
+import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -26,7 +33,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ActiveTripCard, CancellationModal, MatchingOverlay, RidePlannerSheet } from './components';
 
-// Simulated nearby Transporter vehicles shown idling around the customer
+// Simulated nearby Driver vehicles shown idling around the customer
 // while there's no live driver location to display yet.
 const NEARBY_VEHICLE_MIN_COUNT = 2;
 const NEARBY_VEHICLE_MAX_COUNT = 4;
@@ -113,11 +120,11 @@ function VehicleIdleJitter({ id, baseLat, baseLng, onJitter }: VehicleIdleJitter
 }
 
 /**
- * Passenger Home Screen
+ * Customer Home Screen
  * Full-screen map with ride planning card
  * Shows matching overlay and active trip card based on ride status
  */
-export function PassengerHome() {
+export function CustomerHome() {
   const insets = useSafeAreaInsets();
   const {
     status,
@@ -127,7 +134,7 @@ export function PassengerHome() {
     isPickupManual,
     routeCoordinates,
     routeDurationMinutes,
-    passengerHex9,
+    customerHex9,
     requestRide,
     cancelRide,
     completeRide,
@@ -138,6 +145,12 @@ export function PassengerHome() {
 
   const { h3DebugMode, toggleH3DebugMode } = useSettingsStore();
   const { location: userLocation, province, loading: locationLoading } = useSnappedLocation();
+
+  // Navigation Engine — drives PREVIEW/MATCHING mode alongside this screen's
+  // own booking status. See the status-sync effect below for MATCHING, and
+  // RidePlannerSheet for PREVIEW (pickup/destination selection).
+  const navigation = useNavigation();
+  const navigationMode = useNavigationMode();
 
   // Vehicle classes/rates are admin-configured catalog data, not per-ride
   // state -- fetch once when the home screen loads rather than per booking.
@@ -162,6 +175,40 @@ export function PassengerHome() {
   const [matchingPhase, setMatchingPhase] = useState<'searching' | 'expanded'>('searching');
   const mapRef = useRef<any>(null);
 
+  // Attaches this screen's own map ref to CameraController — the same
+  // attachMap/detachMap wiring <NavigationMap/> does internally, reused
+  // directly here since this screen keeps its own raw <Map> (h3 grid,
+  // simulated nearby vehicles, live-location dot, arrival badge — none of
+  // which <NavigationMap/> exposes). CameraController only ever drives one
+  // map at a time (module-level singleton), and this screen can stay
+  // mounted underneath /(customer)/trip in the stack — useFocusEffect keeps
+  // ownership tied to whichever screen the user is actually looking at,
+  // instead of a plain mount-once effect that would leave this map
+  // detached after a back-navigation round trip.
+  useFocusEffect(
+    useCallback(() => {
+      attachMap({
+        // `options.duration` unwrapped here — see NavigationMap.tsx's
+        // identical adapter for why: `Map`'s exposed `animateCamera` takes
+        // a bare `duration?: number`, not CameraController's `{ duration }`
+        // options object (Phase 9D camera runtime cleanup).
+        animateCamera: (camera, options) => {
+          mapRef.current?.animateCamera?.(camera, options.duration);
+        },
+      });
+      return () => detachMap();
+    }, [])
+  );
+
+  useEffect(() => {
+    setChrome({ safeArea: insets });
+  }, [insets.top, insets.right, insets.bottom, insets.left]);
+
+  const handleMapLayout = useCallback((event: { nativeEvent: { layout: { width: number; height: number } } }) => {
+    const { width, height } = event.nativeEvent.layout;
+    setViewportSize({ width, height });
+  }, []);
+
   // Debug-only feature: force the grid off if h3DebugMode is turned off while
   // it's showing, so customers can never be left staring at hexagons with no
   // toggle button left to dismiss them.
@@ -171,7 +218,7 @@ export function PassengerHome() {
     }
   }, [h3DebugMode, showH3Grid]);
 
-  // Simulated nearby Transporter vehicles, spawned once around the customer's
+  // Simulated nearby Driver vehicles, spawned once around the customer's
   // first known location so they don't jump around as GPS fixes update.
   const [baseNearbyVehicles, setBaseNearbyVehicles] = useState<MapVehicle[]>([]);
   const [nearbyVehicles, setNearbyVehicles] = useState<MapVehicle[]>([]);
@@ -210,19 +257,50 @@ export function PassengerHome() {
     }
   }, [status]);
 
+  // Keeps this device's own NavigationStore mode in step with rideStore's
+  // booking status. RidePlannerSheet already drives IDLE <-> PREVIEW from
+  // pickup/destination selection (and unmounts once status leaves
+  // idle/planning), so this only owns the PREVIEW -> MATCHING edge and its
+  // reverse — MATCHING+ once a driver is matched is handed off to
+  // app/(customer)/trip.tsx, which continues the same replay pattern from
+  // wherever this leaves it.
+  useEffect(() => {
+    if (status === 'matching') {
+      if (useNavigationStore.getState().mode === NavigationMode.IDLE && pickup && destination) {
+        // Defensive: normally already PREVIEW by the time a booking is
+        // confirmed (RidePlannerSheet's own effect got there first) — this
+        // only matters if requestRide() somehow won the race.
+        safeTransition(() =>
+          navigation.preview(
+            { latitude: pickup.latitude, longitude: pickup.longitude },
+            { latitude: destination.latitude, longitude: destination.longitude }
+          )
+        );
+      }
+      safeTransition(() => navigation.requestMatch());
+      return;
+    }
+
+    if (status === 'idle' || status === 'planning') {
+      if (useNavigationStore.getState().mode === NavigationMode.MATCHING) {
+        safeTransition(() => navigation.cancel());
+      }
+    }
+  }, [status, pickup, destination, navigation]);
+
   // Calculate H3 Grid (Radius 2 as requested)
   const h3Grid = React.useMemo(() => {
-    if (!passengerHex9) return [];
+    if (!customerHex9) return [];
     try {
       // getNearbyHexes(hex, 2) returns center + 2 rings (19 total hexagons)
-      const ring = useRideStore.getState().passengerHex9
-        ? getNearbyHexes(useRideStore.getState().passengerHex9!, 2)
+      const ring = useRideStore.getState().customerHex9
+        ? getNearbyHexes(useRideStore.getState().customerHex9!, 2)
         : [];
       return ring;
     } catch (e) {
       return [];
     }
-  }, [passengerHex9]);
+  }, [customerHex9]);
 
   // Handle re-center to user location
 
@@ -232,15 +310,14 @@ export function PassengerHome() {
       // expo-location directly — see GPSManager.ts). GPSManager already
       // falls back to the last known fix internally if a fresh High-accuracy
       // read is unsatisfied, matching this button's previous behaviour.
-      const fix = await GPSManager.getCurrentFix('passengerBalanced');
+      const fix = await GPSManager.getCurrentFix('customerBalanced');
 
-      if (fix && mapRef.current) {
-        mapRef.current.animateToRegion({
-          latitude: fix.coordinate.latitude,
-          longitude: fix.coordinate.longitude,
-          latitudeDelta: 0.0035, // Premium street-level zoom
-          longitudeDelta: 0.0016,
-        }, 1000);
+      // Camera Rules (AGENTS.md): screens never call animateCamera/
+      // animateToRegion themselves — this map is already attached to
+      // CameraController (see the useFocusEffect above), so the recenter
+      // request goes through its one-shot recenterOnLocation instead.
+      if (fix) {
+        recenterOnLocation(fix.coordinate);
       }
     } catch {
       // Silently ignore — re-centering is a non-critical convenience action.
@@ -343,15 +420,21 @@ export function PassengerHome() {
 
   // Debug logging for H3
   useEffect(() => {
-    if (h3DebugMode && passengerHex9 && (status === 'matching' || status === 'planning')) {
-      const nearby = findNearbyDrivers(passengerHex9);
-      console.log(`[H3 DEBUG] Discovered ${nearby.length} drivers near ${passengerHex9}`);
+    if (h3DebugMode && customerHex9 && (status === 'matching' || status === 'planning')) {
+      const nearby = findNearbyDrivers(customerHex9);
+      console.log(`[H3 DEBUG] Discovered ${nearby.length} drivers near ${customerHex9}`);
       nearby.forEach(d => console.log(` - Driver ${d.id} at ${d.hex9}`));
     }
-  }, [h3DebugMode, passengerHex9, status]);
+  }, [h3DebugMode, customerHex9, status]);
 
   // Determine if we should show route on map
   const showRoute = (status === 'active' || (!!pickup && !!destination && routeCoordinates.length > 0)) && activeTrip?.status !== 'waiting';
+
+  // Hands camera ownership to CameraController only for the two modes this
+  // migration covers (PREVIEW/MATCHING) — Map's own internal
+  // fitToCoordinates/animateToRegion effects stay in charge everywhere else
+  // (idle "center on me", active-trip driver-follow), unchanged from before.
+  const engineOwnsCamera = navigationMode === NavigationMode.PREVIEW || navigationMode === NavigationMode.MATCHING;
 
   // Formatted arrival time shown on the destination map marker once a route
   // duration is known.
@@ -366,16 +449,17 @@ export function PassengerHome() {
       <StatusBar barStyle="dark-content" backgroundColor="#E7F1F9" />
 
       {/* Map base layer - absolutely positioned at z-index 0 */}
-      <View style={styles.mapContainer} pointerEvents="box-none">
+      <View style={styles.mapContainer} pointerEvents="box-none" onLayout={handleMapLayout}>
         <Map
           ref={mapRef}
           userLocation={userLocation || undefined}
           pickup={pickupToDisplay || undefined}
           destination={activeTrip?.destination || destination || undefined}
           arrivalTime={arrivalTime}
+          disableInternalCamera={engineOwnsCamera}
 
           showRoute={showRoute}
-          passengerHex9={passengerHex9}
+          customerHex9={customerHex9}
           showH3Grid={showH3Grid}
           h3Grid={h3Grid}
           routeCoordinates={routeCoordinates.length > 0 ? routeCoordinates : undefined}
@@ -528,7 +612,7 @@ export function PassengerHome() {
             </View>
             <View className="flex-row items-center gap-2">
               <Ionicons name="cube-outline" size={14} color="#60A5FA" />
-              <Text className="text-white font-mono text-sm">{passengerHex9 || 'Calculating...'}</Text>
+              <Text className="text-white font-mono text-sm">{customerHex9 || 'Calculating...'}</Text>
             </View>
             <Text className="text-blue-200/60 text-[10px] mt-1 italic">
               * Resolution: 9 (≈170m) | Search radius: 6 rings

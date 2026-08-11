@@ -20,7 +20,7 @@ interface RoleSwitcherProps {
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
 /**
- * Role switcher component for switching between Passenger and Driver modes.
+ * Role switcher component for switching between Customer and Driver modes.
  *
  * Driver mode is gated on the real drivers.account_status:
  * - null (no drivers row): no Driver tile — only the "Become a Driver" entry
@@ -35,16 +35,16 @@ export function RoleSwitcher({
   driverAccountStatus,
   onStartOnboarding,
 }: RoleSwitcherProps) {
-  const passengerScale = useSharedValue(currentRole === 'passenger' ? 1 : 0.95);
+  const customerScale = useSharedValue(currentRole === 'passenger' ? 1 : 0.95);
   const driverScale = useSharedValue(currentRole === 'driver' ? 1 : 0.95);
   
   React.useEffect(() => {
-    passengerScale.value = withSpring(currentRole === 'passenger' ? 1 : 0.95);
+    customerScale.value = withSpring(currentRole === 'passenger' ? 1 : 0.95);
     driverScale.value = withSpring(currentRole === 'driver' ? 1 : 0.95);
   }, [currentRole]);
   
-  const passengerStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: passengerScale.value }],
+  const customerStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: customerScale.value }],
   }));
   
   const driverStyle = useAnimatedStyle(() => ({
@@ -101,10 +101,10 @@ export function RoleSwitcher({
       </Text>
       
       <View className="flex-row gap-3">
-        {/* Passenger option */}
+        {/* Customer option */}
         <AnimatedPressable
           onPress={() => onRoleChange('passenger')}
-          style={passengerStyle}
+          style={customerStyle}
           className={`flex-1 p-4 rounded-3xl items-center ${
             currentRole === 'passenger' 
               ? 'bg-primary' 
@@ -127,7 +127,7 @@ export function RoleSwitcher({
               currentRole === 'passenger' ? 'text-white' : 'text-primary'
             }`}
           >
-            Passenger
+            Customer
           </Text>
           <Text 
             className={`text-xs mt-0.5 ${

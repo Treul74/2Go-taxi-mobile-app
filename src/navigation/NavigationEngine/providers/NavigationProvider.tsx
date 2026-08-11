@@ -35,14 +35,29 @@
  * Phase 7F (performance): the fix + progress publish is one store commit
  * (`RouteProgressTracker.applyGpsFixWithProgress`) instead of two, when a
  * route is active — see that function's own doc.
+ *
+ * Phase 9B additionally makes this the one place that resolves
+ * `NavigationState.actor` from the user's active role (`userStore.role`)
+ * and routes each incoming fix accordingly: `actor === 'driver'` keeps
+ * the existing `driverLocation`/route-progress/reroute pipeline exactly as
+ * before; `actor === 'customer'` instead publishes to `customerLocation`
+ * only (`setCustomerGpsFix` — no route-progress/reroute, which are
+ * meaningless for a Customer's own position). This is the "integration
+ * boundary" `types.ts`'s own `NavigationActor` doc comment already named as
+ * where a `UserRole` -> `NavigationActor` mapping belongs, not a new
+ * dependency direction — this provider already sits between the app root
+ * and the engine, and is the only place actor is resolved. Still exactly
+ * one `GPSManager.onFix` subscription; only where a fix's data ends up
+ * changed based on who it belongs to.
  */
 
 import React, { createContext, useContext, useEffect, useMemo, useRef, type ReactNode } from 'react';
+import { useUserStore } from '@/state';
 import * as GPSManager from '../GPSManager';
 import { navigationEventBus, type NavigationEventBus } from '../NavigationEvents';
 import { useNavigationStore } from '../NavigationStore';
 import { applyGpsFixWithProgress, checkAndReroute } from '../RouteProgressTracker';
-import type { LatLng } from '../types';
+import type { GPSFix, LatLng } from '../types';
 
 /**
  * Dev-only transition visibility (Phase 5.5B, Task 2: "Log every transition
@@ -83,6 +98,17 @@ export function NavigationProvider({ children }: NavigationProviderProps) {
   const lastRerouteCheckRef = useRef<{ current: LatLng | null }>({ current: null });
   const lastRouteIdRef = useRef<string | null>(null);
 
+  // Resolves NavigationState.actor from the user's active role. 2Go's
+  // legacy UserRole ('passenger'/'driver') is distinct from
+  // NavigationActor ('customer'/'driver') by design (see types.ts) —
+  // this is that one mapping, reactive so a mid-session role switch
+  // (RoleSwitcher) immediately changes which store field this provider's
+  // onFix listener below writes into.
+  const userRole = useUserStore((state) => state.role);
+  useEffect(() => {
+    useNavigationStore.getState().setActor(userRole === 'driver' ? 'driver' : 'customer');
+  }, [userRole]);
+
   useEffect(() => {
     // Phase 7R.9 (GPS seed restoration): before this effect existed, every
     // driver screen called `Location.getCurrentPositionAsync()` itself,
@@ -98,14 +124,16 @@ export function NavigationProvider({ children }: NavigationProviderProps) {
     // a new subscription, not a direct `expo-location` call, not a second
     // GPS owner — so this restores the old immediate-availability guarantee
     // without changing GPS ownership.
-    const cachedFix = GPSManager.getLastFix();
-    if (cachedFix) {
-      useNavigationStore.getState().setGpsFix(cachedFix);
-    }
 
-    const unsubscribeFix = GPSManager.onFix((fix) => {
-      // TEMPORARY (Phase 7R.1 runtime verification) — remove after verification.
-      if (__DEV__) console.log('[NavigationProvider.onFix] received GPS fix', fix.coordinate);
+    // Routes one fix to the correct store field for whichever actor this
+    // device currently is — the one branch point Phase 9B added. A Customer
+    // fix stops here: route-progress/reroute only mean something for the
+    // Driver's own position against an active route.
+    function applyFixForActor(fix: GPSFix): void {
+      if (useNavigationStore.getState().actor === 'customer') {
+        useNavigationStore.getState().setCustomerGpsFix(fix);
+        return;
+      }
 
       // Performance optimization (Phase 7F): when a route is already active,
       // publish the fix and its route progress in ONE store commit
@@ -116,9 +144,7 @@ export function NavigationProvider({ children }: NavigationProviderProps) {
       // is read before applying the fix since a fix never changes it.
       const routeBeforeFix = useNavigationStore.getState().route;
       if (routeBeforeFix) {
-        if (__DEV__) console.log('[NavigationProvider.onFix] entering applyGpsFixWithProgress()');
         applyGpsFixWithProgress(fix, routeBeforeFix);
-        if (__DEV__) console.log('[NavigationProvider.onFix] applyGpsFixWithProgress() returned successfully');
       } else {
         useNavigationStore.getState().setGpsFix(fix);
       }
@@ -129,16 +155,18 @@ export function NavigationProvider({ children }: NavigationProviderProps) {
           lastRouteIdRef.current = state.route.id;
           lastRerouteCheckRef.current.current = null;
         }
-        if (__DEV__) console.log('[NavigationProvider.onFix] entering checkAndReroute()');
-        void checkAndReroute(state.driverLocation, state.route, lastRerouteCheckRef.current)
-          .then(() => {
-            if (__DEV__) console.log('[NavigationProvider.onFix] checkAndReroute() returned successfully');
-          })
-          .catch((error) => {
-            if (__DEV__) console.log('[NavigationProvider.onFix] checkAndReroute() REJECTED', error);
-          });
+        void checkAndReroute(state.driverLocation, state.route, lastRerouteCheckRef.current).catch(() => {
+          // Non-critical — the next fix's reroute check will simply try again.
+        });
       }
-    });
+    }
+
+    const cachedFix = GPSManager.getLastFix();
+    if (cachedFix) {
+      applyFixForActor(cachedFix);
+    }
+
+    const unsubscribeFix = GPSManager.onFix(applyFixForActor);
     const unsubscribeStatus = GPSManager.onStatusChange((status) => {
       useNavigationStore.getState().setGpsStatus(status);
     });

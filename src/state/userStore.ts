@@ -174,9 +174,9 @@ export const useUserStore = create<UserState>((set) => ({
         // and falls back to passenger otherwise.
         role:
           state.role === 'driver'
-            ? driverAccount && driverAccount.accountStatus !== 'approved'
-              ? 'passenger'
-              : 'driver'
+            ? driverAccount?.accountStatus === 'approved'
+              ? 'driver'
+              : 'passenger'
             : storedRole === 'driver' && driverAccount?.accountStatus === 'approved'
             ? 'driver'
             : 'passenger',

@@ -270,7 +270,7 @@ export async function fetchOrderCustomer(
   const { first_name, last_name, rating } = data.customers;
   return {
     id: data.customer_id,
-    name: `${first_name ?? ''} ${last_name ?? ''}`.trim() || 'Passenger',
+    name: `${first_name ?? ''} ${last_name ?? ''}`.trim() || 'Customer',
     rating: Number(rating) || 0,
   };
 }

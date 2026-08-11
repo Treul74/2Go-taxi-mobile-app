@@ -52,7 +52,7 @@ export default function ChatScreen() {
 
   const participantName =
     conversation?.participantName ??
-    (role === 'driver' ? currentTrip?.passengerName : activeTrip?.driver.name) ??
+    (role === 'driver' ? currentTrip?.customerName : activeTrip?.driver.name) ??
     'Chat';
   // Both parties are necessarily active while an order is in flight -- the
   // conversation list's real driver_status only applies once one exists.

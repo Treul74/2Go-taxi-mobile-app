@@ -32,8 +32,8 @@ tracking to survive backgrounding on iOS), `package.json`/
 `package-lock.json` (added the `expo-task-manager` dependency background
 tracking requires), and — as of Phase 3.5 — the 7 audited GPS call sites
 (`src/hooks/useCurrentLocation.ts`,
-`src/features/passenger/components/MapPickerModal.native.tsx`,
-`src/features/passenger/PassengerHome.tsx`,
+`src/features/customer/components/MapPickerModal.native.tsx`,
+`src/features/customer/CustomerHome.tsx`,
 `src/features/driver/DriverDashboard.tsx`, `app/(driver)/navigation.tsx`,
 `app/(driver)/trip.tsx`, `app/(tabs)/navigate.tsx`) — each migrated to call
 `GPSManager` instead of `expo-location` directly, with no change to their
@@ -114,7 +114,7 @@ now implements exactly that list:
 | `OFFLINE` | *(not modeled in the Bible; additive)* |
 
 If a future pass wants the Bible's extra granularity (e.g. a distinct
-"driver accepted, camera easing toward them" moment before the Transporter
+"driver accepted, camera easing toward them" moment before the Driver
 actually starts driving), extend `NAVIGATION_MODE_TRANSITIONS` with a new
 state rather than forking this file.
 
@@ -152,7 +152,7 @@ state rather than forking this file.
 `cancel`, `reset`, and `goOnline` are intentionally three separate methods
 that all resolve to the identical `-> IDLE` edge. They exist as distinct
 names so a screen's call site documents *why* it's returning to idle
-(a cancellation vs. a finished trip vs. a Transporter coming back online) —
+(a cancellation vs. a finished trip vs. a Driver coming back online) —
 see `CANCELLABLE_MODES` in NavigationModes.ts for exactly which modes
 `cancel()` is legal from (calling it from `TRIP_IN_PROGRESS`, for instance,
 throws — the business rule is that an in-progress trip can't be cancelled
@@ -187,9 +187,9 @@ Additive, not in the Bible's list:
 
 | Field | Type | Why it exists |
 |---|---|---|
-| `customerLocation` | `LatLng \| null` | The Bible's store only tracks one moving point (`driverLocation`). This engine also tracks the Customer's position — needed once a Customer-side device's own GPS feeds this store, or once the backend syncs it to the Transporter's device. |
+| `customerLocation` | `LatLng \| null` | The Bible's store only tracks one moving point (`driverLocation`). This engine also tracks the Customer's position — needed once a Customer-side device's own GPS feeds this store, or once the backend syncs it to the Driver's device. |
 | `gpsState` | `GPSState` | A typed home for GPS status (`disabled`/`acquiring`/`active`/`lost`) plus the last fix, so screens can show "searching for GPS…" without a real watcher existing yet. |
-| `heading` | `number \| null` | The Transporter's raw compass/GPS heading — kept distinct from `bearing` (what the *camera* is doing), matching AGENTS.md's separate "Camera Bearing" and "Driver Heading" responsibilities. |
+| `heading` | `number \| null` | The Driver's raw compass/GPS heading — kept distinct from `bearing` (what the *camera* is doing), matching AGENTS.md's separate "Camera Bearing" and "Driver Heading" responsibilities. |
 | `followMode` | `boolean` | Whether the camera is actively auto-following, kept as an explicit flag rather than making callers infer it from `cameraState === 'FOLLOW_DRIVER'`. |
 | `recenterState` | `RecenterState` | Lifecycle of the floating Recenter button described in the Bible's closing "Camera State Manager" note (`idle` / `available` / `recentering`). |
 | `navigationEnabled` | `boolean` | Master switch for whether the engine is actively guiding a session, independent of `mode` — see types.ts doc on the field. |
@@ -216,7 +216,7 @@ equivalent are approximated from the nearest Bible mode.
 | `PREVIEW` | off | 0° | fit-derived | north | yes (pickup + destination + route) |
 | `MATCHING` | off | 0° | fit-derived | north | yes (pickup + destination + nearby drivers) |
 | `DRIVER_TO_PICKUP` | on, road rotates | 50° | 17.5 | actor heading | no — follow, actor at 65-70% down screen (camera eases in smoothly on entry rather than jumping) |
-| `ARRIVED_PICKUP` | — | — | zoom in slightly | — | focus on passenger pin |
+| `ARRIVED_PICKUP` | — | — | zoom in slightly | — | focus on customer pin |
 | `TRIP_IN_PROGRESS` | on, road rotates | dynamic (45-55°) | dynamic (see below) | actor heading (arrow fixed) | no — follow |
 | `ARRIVED_DROPOFF` | slows | 35° | zoom out slightly | — | destination centered |
 | `TRIP_COMPLETED` | off | 0° | zoom out | north | yes (vehicle + destination) |
@@ -279,8 +279,8 @@ A full repo grep for `Location.watchPositionAsync`, `getCurrentPositionAsync`,
 `GPSManager.ts`:
 
 `src/hooks/useCurrentLocation.ts`,
-`src/features/passenger/components/MapPickerModal.native.tsx`,
-`src/features/passenger/PassengerHome.tsx`,
+`src/features/customer/components/MapPickerModal.native.tsx`,
+`src/features/customer/CustomerHome.tsx`,
 `src/features/driver/DriverDashboard.tsx`, `app/(driver)/navigation.tsx`,
 `app/(driver)/trip.tsx`, `app/(tabs)/navigate.tsx`.
 
@@ -304,7 +304,7 @@ GPS:
   inefficiency in `audit_export/audit_02-08-26_13-49_navigation-system-architecture.html`,
   now fixed as a side effect of routing through `GPSManager` correctly,
   not a separate change).
-- **One-shot reads** (`PassengerHome.tsx`'s recenter button,
+- **One-shot reads** (`CustomerHome.tsx`'s recenter button,
   `MapPickerModal.native.tsx`'s "my location" button):
   `GPSManager.getCurrentFix(profile)`, no subscription at all.
 - **Multi-consumer** (`useCurrentLocation.ts`): `acquire`/`release`

@@ -1,7 +1,7 @@
 import { CompassButton, Map } from '@/components/map';
 import { Button, Card, Input } from '@/components/ui';
-import { LocationSearchModal } from '@/features/passenger/components/LocationSearchModal';
-import { MapPickerModal } from '@/features/passenger/components/MapPickerModal';
+import { LocationSearchModal } from '@/features/customer/components/LocationSearchModal';
+import { MapPickerModal } from '@/features/customer/components/MapPickerModal';
 import { useTurnPreview } from '@/hooks/useTurnPreview';
 import { calculateDistanceMeters, formatManeuverDistance } from '@/lib/distance';
 import { type DirectionStep } from '@/lib/google/mapsApi';
@@ -314,9 +314,9 @@ export default function DriverNavigateScreen() {
         if (showMidStop) setMidLocation(null);
     };
 
-    // Same MapPickerModal the passenger flow uses (drag-to-center-pin with
+    // Same MapPickerModal the customer flow uses (drag-to-center-pin with
     // road snapping) — writes into this screen's own local start/destination
-    // state, never the passenger-side rideStore.
+    // state, never the customer-side rideStore.
     const handleMapPickerConfirm = useCallback((location: Location) => {
         if (mapSelectionTarget === 'start') {
             setStartLocation(location);
@@ -593,7 +593,7 @@ export default function DriverNavigateScreen() {
                 />
 
                 {/* Map Picker Modal - same drag-to-select + road-snapping screen the
-                    passenger flow uses, opened via "Choose on Map" above */}
+                    customer flow uses, opened via "Choose on Map" above */}
                 <MapPickerModal
                     visible={mapSelectionTarget !== null}
                     initialLocation={

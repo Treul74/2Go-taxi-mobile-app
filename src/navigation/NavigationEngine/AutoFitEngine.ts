@@ -163,7 +163,7 @@ export function fitPreview(
 
 /**
  * Driver Accepted (Bible: "Camera slowly transitions towards driver, pickup
- * instead of instantly jumping"). Fits the Transporter's starting position
+ * instead of instantly jumping"). Fits the Driver's starting position
  * and the pickup point together so both stay visible during that
  * transition. Not tied to a dedicated `NavigationMode` — AGENTS.md's
  * canonical mode list collapses "Driver Accepted" into the
