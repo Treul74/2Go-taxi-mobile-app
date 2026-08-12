@@ -254,8 +254,6 @@ export const useNavigationStore = create<NavigationStore>()((set) => ({
 
   setOverviewRoute: (route) => set({ overviewRoute: route }),
 
-  setRoute: (route) => set({ route }),
-
   setNavigationEnabled: (enabled: boolean) => {
     set({ navigationEnabled: enabled });
   },

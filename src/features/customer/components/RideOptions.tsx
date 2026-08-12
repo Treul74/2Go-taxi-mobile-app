@@ -3,6 +3,7 @@ import { View, Text, Pressable, Modal } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Card, Button, Input, Divider } from '@/components/ui';
 import type { PaymentMethod } from '@/types';
+import { ScheduleRideModal } from './ScheduleRideModal';
 
 interface RideOptionsProps {
   paymentMethod: PaymentMethod;
@@ -36,6 +37,7 @@ export function RideOptions({
   onDriverInstructionsChange,
 }: RideOptionsProps) {
   const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [showScheduleModal, setShowScheduleModal] = useState(false);
   const [showBookingModal, setShowBookingModal] = useState(false);
   const [showInstructionsModal, setShowInstructionsModal] = useState(false);
   const [tempBooking, setTempBooking] = useState({ name: '', phone: '' });
@@ -61,7 +63,7 @@ export function RideOptions({
         
         {/* Schedule for later */}
         <Pressable 
-          onPress={() => onScheduleChange(scheduledFor ? null : new Date())}
+          onPress={() => scheduledFor ? onScheduleChange(null) : setShowScheduleModal(true)}
           className={`flex-row items-center px-4 py-2.5 rounded-full ${
             scheduledFor ? 'bg-primary' : 'bg-gray-100'
           }`}
@@ -283,6 +285,17 @@ export function RideOptions({
           </View>
         </View>
       </Modal>
+      
+      {/* Schedule Ride Modal */}
+      <ScheduleRideModal
+        visible={showScheduleModal}
+        onClose={() => setShowScheduleModal(false)}
+        onConfirm={(date) => {
+          onScheduleChange(date);
+          setShowScheduleModal(false);
+        }}
+        initialDate={scheduledFor}
+      />
     </View>
   );
 }

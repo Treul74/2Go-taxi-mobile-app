@@ -52,7 +52,7 @@ export function DriverDashboard() {
   useEffect(() => {
     if (!isOnline) return;
 
-    GPSManager.acquire('foreground', 'customerBalanced').catch((error) => {
+    GPSManager.acquire('foreground', 'driverBestNavigation').catch((error) => {
       if (__DEV__) {
         console.warn('[DriverDashboard] GPS acquisition failed:', error);
       }
@@ -155,9 +155,17 @@ export function DriverDashboard() {
       if (fix) {
         recenterOnLocation(fix.coordinate);
         navigation.recenter(); // exit free explore mode
+      } else {
+        if (__DEV__) {
+          console.warn('[DriverDashboard] GPS acquisition failed: null fix returned');
+        }
+        Alert.alert('Location unavailable', 'Could not determine your current location.');
       }
-    } catch {
-      // Silently ignore
+    } catch (error) {
+      if (__DEV__) {
+        console.warn('[DriverDashboard] GPS acquisition failed:', error);
+      }
+      Alert.alert('Location unavailable', 'Could not determine your current location.');
     }
   }, [navigation]);
 

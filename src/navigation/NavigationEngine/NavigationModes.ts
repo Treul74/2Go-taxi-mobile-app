@@ -27,7 +27,7 @@ export enum NavigationMode {
   IDLE = 'IDLE',
   /** Displaying Pickup and Drop-off. Both points are known and previewed before the request is submitted. */
   PREVIEW = 'PREVIEW',
-  /** Waiting for a driver. The request has been submitted; the app is searching for / awaiting acceptance from a Driver. */
+  /** Waiting for a Driver. The request has been submitted; the app is searching for / awaiting acceptance from a Driver. */
   MATCHING = 'MATCHING',
   /** Driver navigating to Pickup. A Driver has been assigned and is en route to the Customer. */
   DRIVER_TO_PICKUP = 'DRIVER_TO_PICKUP',
@@ -50,7 +50,7 @@ export const NAVIGATION_MODE_DESCRIPTIONS: Readonly<Record<NavigationMode, strin
   [NavigationMode.PREVIEW]:
     'Displaying Pickup and Drop-off. Both points are known and previewed before the request is submitted.',
   [NavigationMode.MATCHING]:
-    'Waiting for a driver. The request has been submitted; the app is searching for / awaiting acceptance from a Driver.',
+    'Waiting for a Driver. The request has been submitted; the app is searching for / awaiting acceptance from a Driver.',
   [NavigationMode.DRIVER_TO_PICKUP]:
     'Driver navigating to Pickup. A Driver has been assigned and is en route to the Customer.',
   [NavigationMode.ARRIVED_PICKUP]:

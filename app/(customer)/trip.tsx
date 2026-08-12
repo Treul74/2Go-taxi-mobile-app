@@ -116,7 +116,7 @@ function advanceNavigationMode(
  * writes it.
  */
 export default function CustomerTripScreen() {
-  const { activeTrip, status, cancelRide } = useRideStore();
+  const { activeTrip, status, cancelRide, fareReceipt } = useRideStore();
   const [showCancellationModal, setShowCancellationModal] = useState(false);
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
@@ -124,10 +124,17 @@ export default function CustomerTripScreen() {
   // Redirect home if there's no active trip to show (cancelled, completed,
   // or this screen was reached without an order in flight).
   useEffect(() => {
+    if (fareReceipt) {
+      return;
+    }
+
     if (status !== 'active' || !activeTrip) {
+      if (status === 'completed') {
+        return;
+      }
       router.replace('/(tabs)');
     }
-  }, [status, activeTrip]);
+  }, [status, activeTrip, fareReceipt]);
 
   // Keeps this device's own NavigationStore mode in step with
   // activeTrip.status — see advanceNavigationMode's doc.
