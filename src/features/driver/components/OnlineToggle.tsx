@@ -1,6 +1,6 @@
 import * as Haptics from 'expo-haptics';
 import React, { useEffect } from 'react';
-import { Pressable } from 'react-native';
+import { Pressable, Alert } from 'react-native';
 import Animated, {
   interpolateColor,
   useAnimatedStyle,
@@ -25,8 +25,26 @@ export function OnlineToggle({ isOnline, onToggle }: OnlineToggleProps) {
   }, [isOnline]);
 
   const handlePress = () => {
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    onToggle();
+    if (isOnline) {
+      Alert.alert(
+        'Go Offline',
+        'Are you sure you want to go offline? You will stop receiving ride requests.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Go Offline',
+            style: 'destructive',
+            onPress: () => {
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+              onToggle();
+            },
+          },
+        ]
+      );
+    } else {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      onToggle();
+    }
   };
 
   const trackAnimatedStyle = useAnimatedStyle(() => {

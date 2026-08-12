@@ -18,6 +18,7 @@ export default function RatingScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const rideHistory = useRideStore((state) => state.rideHistory);
   const rateRide = useRideStore((state) => state.rateRide);
+  const resetRide = useRideStore((state) => state.resetRide);
   const navigation = useNavigation();
 
   const [rating, setRating] = useState(0);
@@ -35,11 +36,13 @@ export default function RatingScreen() {
       await rateRide(id, rating, comment.trim() || undefined);
       setSubmitting(false);
     }
+    resetRide();
     safeTransition(() => navigation.reset());
     router.replace('/discover');
   };
 
   const handleSkip = () => {
+    resetRide();
     safeTransition(() => navigation.reset());
     router.replace('/discover');
   };

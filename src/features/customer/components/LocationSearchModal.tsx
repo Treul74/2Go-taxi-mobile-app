@@ -89,11 +89,15 @@ export function LocationSearchModal({
       return;
     }
 
+    let cancelled = false;
+
     const timer = setTimeout(async () => {
       setIsSearching(true);
       setNotFound(false);
       try {
         const outcome = await searchLocation(query, userLocation);
+
+        if (cancelled) return;
 
         if (outcome.type === 'resolved') {
           setResolvedResult(outcome.result);
@@ -107,16 +111,22 @@ export function LocationSearchModal({
           setNotFound(true);
         }
       } catch (error) {
+        if (cancelled) return;
         console.error('Location search error:', error);
         setSuggestions([]);
         setResolvedResult(null);
         setNotFound(true);
       } finally {
-        setIsSearching(false);
+        if (!cancelled) {
+          setIsSearching(false);
+        }
       }
     }, 300);
 
-    return () => clearTimeout(timer);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
   }, [query, userLocation]);
 
   // Resolves the district for the header label — same reference point used to
@@ -392,7 +402,7 @@ export function LocationSearchModal({
                     </Pressable>
                   ))}
                 </>
-              ) : notFound || query.length >= 3 ? (
+              ) : notFound ? (
                 <View style={styles.emptyContainer}>
                   <Ionicons name="alert-circle-outline" size={48} color="#CBD5E1" />
                   <Text style={styles.emptyText}>Location not found</Text>

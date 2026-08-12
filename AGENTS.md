@@ -507,9 +507,6 @@ The Navigation Engine is the single source of truth for navigation-related behav
 
 The complete architecture is defined in:
 
-```text
-GO Navigation Engine Bible.md
-```
 
 Any AI agent working on navigation MUST read that document before making changes.
 

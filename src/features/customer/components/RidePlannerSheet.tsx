@@ -122,7 +122,7 @@ export function RidePlannerSheet({ onRequestRide, isMapDragging = false }: RideP
       // setPickup stores the currentLocation reference, so this only fires
       // when the watcher has actually produced a new fix.
       if (pickup !== currentLocation) {
-        setPickup(currentLocation);
+        setPickup(currentLocation, false);
       }
       if (pickupQuery !== 'Live location') {
         setPickupQuery('Live location');
@@ -151,6 +151,9 @@ export function RidePlannerSheet({ onRequestRide, isMapDragging = false }: RideP
   // consumed by CameraController's PREVIEW auto-fit and by whatever HUD a
   // future pass mounts). Same "one fetch, two stores" pattern already used
   // by app/(driver)/trip.tsx bridging NavigationStore into driverStore.
+  const pickupKey = pickup ? `${pickup.latitude.toFixed(4)},${pickup.longitude.toFixed(4)}` : null;
+  const destKey = destination ? `${destination.latitude.toFixed(4)},${destination.longitude.toFixed(4)}` : null;
+
   useEffect(() => {
     if (pickup && destination) {
       const pickupLatLng: LatLng = { latitude: pickup.latitude, longitude: pickup.longitude };
@@ -200,7 +203,8 @@ export function RidePlannerSheet({ onRequestRide, isMapDragging = false }: RideP
         safeTransition(() => navigation.cancel());
       }
     }
-  }, [pickup, destination, setRouteData, clearRoute, navigation]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pickupKey, destKey, setRouteData, clearRoute, navigation]);
 
   // Recalculate real per-vehicle fares/ETAs whenever both pickup and
   // destination are set, replacing the mock vehicleOptions values.
@@ -310,7 +314,7 @@ export function RidePlannerSheet({ onRequestRide, isMapDragging = false }: RideP
 
   // Get selected vehicle info
   const selectedVehicleInfo = vehicleOptions.find((v) => v.id === selectedVehicle);
-  const currentPayment = paymentMethods.find((p) => p.id === paymentMethod)!;
+  const currentPayment = paymentMethods.find((p) => p.id === paymentMethod);
 
   // Handle option actions
   const handleScheduleRide = () => {
@@ -432,7 +436,7 @@ export function RidePlannerSheet({ onRequestRide, isMapDragging = false }: RideP
         <View className="mt-4 flex-row items-center gap-3">
           {/* Payment Icon */}
           <IconButton
-            icon={currentPayment.icon}
+            icon={currentPayment?.icon ?? 'cash-outline'}
             variant="outline"
             size="lg"
             onPress={() => setShowPaymentModal(true)}

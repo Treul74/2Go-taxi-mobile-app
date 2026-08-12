@@ -66,7 +66,7 @@ export function DriverActiveTripCard({
                     zIndex: 10,
                 }}
             >
-                <NavigationSpeedWidget speedLimitKph={60} />
+                <NavigationSpeedWidget />
             </Animated.View>
 
             {/* Bottom trip card */}

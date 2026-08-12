@@ -86,12 +86,15 @@ export function ScheduleRideModal({
             // Default to 30 mins from now rounded to next 15-min interval
             const now = new Date();
             const future = new Date(now.getTime() + 30 * 60000);
-            const h = future.getHours();
-            const m = Math.ceil(future.getMinutes() / 15) * 15;
-            const roundedH = m === 60 ? (h + 1) % 24 : h;
-            const roundedM = m === 60 ? 0 : m;
+            future.setMinutes(Math.ceil(future.getMinutes() / 15) * 15);
 
-            const timeIdx = nextTimes.findIndex(t => t.value.hour === roundedH && t.value.minute === roundedM);
+            const dayIdx = nextDays.findIndex(d =>
+                d.date.getDate() === future.getDate() &&
+                d.date.getMonth() === future.getMonth()
+            );
+            if (dayIdx !== -1) setActiveDateIndex(dayIdx);
+
+            const timeIdx = nextTimes.findIndex(t => t.value.hour === future.getHours() && t.value.minute === future.getMinutes());
             setActiveTimeIndex(timeIdx);
         }
     }, [visible, initialDate]);
@@ -109,9 +112,10 @@ export function ScheduleRideModal({
 
     const handleConfirm = () => {
         if (activeDateIndex !== -1 && activeTimeIndex !== -1) {
-            const day = days[activeDateIndex].date;
             const time = times[activeTimeIndex].value;
+            if (isTimeInPast(time.hour, time.minute)) return;
 
+            const day = days[activeDateIndex].date;
             const result = new Date(day);
             result.setHours(time.hour, time.minute, 0, 0);
 
@@ -209,7 +213,7 @@ export function ScheduleRideModal({
                                 <Text className="text-primary font-bold">
                                     {days[activeDateIndex]?.label === 'Today' || days[activeDateIndex]?.label === 'Tomorrow'
                                         ? days[activeDateIndex]?.label
-                                        : `On the ${days[activeDateIndex]?.label}${getOrdinal(days[activeDateIndex]?.label)}`} at {times[activeTimeIndex]?.label}
+                                        : `On the ${days[activeDateIndex]?.label || ''}${getOrdinal(days[activeDateIndex]?.label || '')}`} at {times[activeTimeIndex]?.label}
                                 </Text>
                                 <Text className="text-secondary text-xs">Pickup will be requested automatically</Text>
                             </View>

@@ -101,7 +101,7 @@ export function InstructionsModal({
 
                             <ScrollView className="px-6 pb-6">
                                 <Text className="text-secondary text-sm mb-4">
-                                    Add helpful instructions for your driver (e.g., exact pickup gate, gate code, or what you're wearing).
+                                    Add helpful instructions for your driver (e.g., exact pickup gate, gate code, or what you&apos;re wearing).
                                 </Text>
 
                                 <View className="bg-gray-100 rounded-3xl p-4 min-h-[160px]">

@@ -5,7 +5,7 @@ import type { ActiveTrip } from '@/types';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import React from 'react';
-import { Linking, Text, View } from 'react-native';
+import { Alert, Linking, Text, View } from 'react-native';
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
@@ -91,7 +91,9 @@ export function ActiveTripCard({ trip, onEndTrip, onCancelTrip, isMapDragging = 
   }));
 
   const handleCall = () => {
-    Linking.openURL(`tel:${trip.driver.phone}`);
+    Linking.openURL(`tel:${trip.driver.phone}`).catch(() => {
+      Alert.alert('Calling Unavailable', 'Unable to initiate call at this time.');
+    });
   };
 
   const handleChat = () => {

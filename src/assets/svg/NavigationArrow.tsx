@@ -1,6 +1,7 @@
 import React, { memo } from "react";
 import { View } from "react-native";
 import Svg, { Defs, LinearGradient, Path, Stop } from "react-native-svg";
+import { colors } from "@/constants/theme";
 
 const VIEWBOX_SIZE = 100;
 const DEFAULT_SIZE = 56;
@@ -27,12 +28,12 @@ function NavigationArrowBase({
       <Svg width={size} height={size} viewBox={`0 0 ${VIEWBOX_SIZE} ${VIEWBOX_SIZE}`}>
         <Defs>
           <LinearGradient id="navArrowMain" x1="0%" y1="0%" x2="0%" y2="100%">
-            <Stop offset="0%" stopColor={isWhite ? "#FFFFFF" : "#FFD54F"} />
-            <Stop offset="100%" stopColor={isWhite ? "#F3F4F6" : "#FFB300"} />
+            <Stop offset="0%" stopColor={isWhite ? colors.white : "#FFD54F"} />
+            <Stop offset="100%" stopColor={isWhite ? colors.gray[100] : "#FFB300"} />
           </LinearGradient>
           <LinearGradient id="navArrowSecondary" x1="0%" y1="0%" x2="0%" y2="100%">
-            <Stop offset="0%" stopColor={isWhite ? "#E5E7EB" : "#FFC107"} />
-            <Stop offset="100%" stopColor={isWhite ? "#D1D5DB" : "#E69500"} />
+            <Stop offset="0%" stopColor={isWhite ? colors.gray[200] : "#FFC107"} />
+            <Stop offset="100%" stopColor={isWhite ? colors.gray[300] : "#E69500"} />
           </LinearGradient>
         </Defs>
 
@@ -53,7 +54,7 @@ function NavigationArrowBase({
         {/* Glossy highlight sliver along the leading left edge */}
         <Path
           d="M50 12 L30 78 Q29 80 31 78.5 L50 30 Z"
-          fill={isWhite ? "#FFFFFF" : "#FFF3C4"}
+          fill={isWhite ? colors.white : "#FFF3C4"}
           opacity={isWhite ? 0.8 : 0.55}
         />
       </Svg>

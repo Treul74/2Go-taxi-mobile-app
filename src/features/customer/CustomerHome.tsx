@@ -238,9 +238,24 @@ export function CustomerHome() {
     if (!userLocation || hasCheckedHomeLocationRef.current) return;
     hasCheckedHomeLocationRef.current = true;
 
-    checkServiceAreaAvailable(userLocation.latitude, userLocation.longitude).then((available) => {
-      setShowServiceAreaBanner(!available);
-    });
+    let isActive = true;
+
+    checkServiceAreaAvailable(userLocation.latitude, userLocation.longitude)
+      .then((available) => {
+        if (isActive) {
+          setShowServiceAreaBanner(!available);
+        }
+      })
+      .catch((error) => {
+        console.error('Failed to check service area availability:', error);
+        if (isActive) {
+          setShowServiceAreaBanner(false);
+        }
+      });
+
+    return () => {
+      isActive = false;
+    };
   }, [userLocation, checkServiceAreaAvailable]);
 
   const handleVehicleJitter = useCallback((id: string, latitude: number, longitude: number) => {

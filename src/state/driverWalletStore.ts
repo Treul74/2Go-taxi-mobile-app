@@ -133,6 +133,21 @@ export const useDriverWalletStore = create<WalletState>()(
         {
             name: 'driver-wallet-storage',
             storage: createJSONStorage(() => AsyncStorage),
+            version: 1,
+            migrate: (persistedState: any, version: number) => {
+                if (version === 0) {
+                    if (persistedState.transactions && Array.isArray(persistedState.transactions)) {
+                        persistedState.transactions = persistedState.transactions.map((tx: any) => {
+                            if ('passengerName' in tx) {
+                                const { passengerName, ...rest } = tx;
+                                return { ...rest, customerName: passengerName };
+                            }
+                            return tx;
+                        });
+                    }
+                }
+                return persistedState as WalletState;
+            },
         }
     )
 );

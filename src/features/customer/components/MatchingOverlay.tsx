@@ -181,12 +181,12 @@ export function MatchingOverlay({ onCancel, onPhaseChange }: MatchingOverlayProp
               className="flex-row items-center rounded-full bg-white px-5 py-3 shadow-[0_4px_8px_rgba(0,0,0,0.15)]"
               onPress={() => setShowPickupSearch(true)}
             >
-              <Text className="text-[15px] text-[#7B8387]">Change</Text>
-              <View className="mx-3 h-4 w-px bg-[#E2E8F0]" />
-              <Text className="mr-1.5 max-w-[160px] text-[15px] font-bold text-[#26344F]" numberOfLines={1}>
+              <Text className="text-[15px] text-secondary">Change</Text>
+              <View className="mx-3 h-4 w-px bg-slate-200" />
+              <Text className="mr-1.5 max-w-[160px] text-[15px] font-bold text-primary" numberOfLines={1}>
                 Pickup location
               </Text>
-              <Ionicons name="chevron-forward" size={16} color="#26344F" />
+              <Ionicons name="chevron-forward" size={16} className="text-primary" />
             </Pressable>
           </View>
 
@@ -200,20 +200,20 @@ export function MatchingOverlay({ onCancel, onPhaseChange }: MatchingOverlayProp
       <Animated.View className="absolute inset-x-0 bottom-0 z-10 rounded-t-[40px] bg-white shadow-[0_-4px_16px_rgba(38,52,79,0.15)]" style={[sheetStyle, { paddingBottom: insets.bottom }]}> 
         <GestureDetector gesture={dragHandleGesture}>
           <View className="items-center pb-1 pt-3">
-            <View className="h-[5px] w-10 rounded-[3px] bg-[#E2E8F0]" />
+            <View className="h-[5px] w-10 rounded-[3px] bg-slate-200" />
           </View>
         </GestureDetector>
 
         {phase === 'searching' ? (
           <View className="px-6 pt-3">
-            <Text className="text-[22px] font-bold text-[#26344F]">Starting search</Text>
-            <Text className="mt-2 text-[15px] text-[#7B8387]">Assessing how long it&apos;ll take to find a car</Text>
+            <Text className="text-[22px] font-bold text-primary">Starting search</Text>
+            <Text className="mt-2 text-[15px] text-secondary">Assessing how long it&apos;ll take to find a car</Text>
 
             <View className="mt-5 flex-row gap-3">
-              <Pressable className="flex-1 items-center rounded-full border-[1.5px] border-[#E2E8F0] px-0 py-3.5" onPress={() => setShowCancelConfirm(true)}>
-                <Text className="text-[15px] font-semibold text-[#26344F]">Cancel ride</Text>
+              <Pressable className="flex-1 items-center rounded-full border-[1.5px] border-slate-200 px-0 py-3.5" onPress={() => setShowCancelConfirm(true)}>
+                <Text className="text-[15px] font-semibold text-primary">Cancel ride</Text>
               </Pressable>
-              <Pressable className="flex-1 items-center rounded-full bg-[#26344F] px-0 py-3.5" onPress={toggleDetails}>
+              <Pressable className="flex-1 items-center rounded-full bg-primary px-0 py-3.5" onPress={toggleDetails}>
                 <Text className="text-[15px] font-semibold text-white">Details</Text>
               </Pressable>
             </View>
@@ -221,18 +221,18 @@ export function MatchingOverlay({ onCancel, onPhaseChange }: MatchingOverlayProp
         ) : (
           <View className="flex-1 px-6 pt-3">
             <View className="flex-row items-start justify-between">
-              <Text className="text-[22px] font-bold text-[#26344F]">Want to find a driver faster?</Text>
-              <Text className="text-[20px] font-bold text-[#FE5035]">{formatCountdown(countdown)}</Text>
+              <Text className="text-[22px] font-bold text-primary">Want to find a driver faster?</Text>
+              <Text className="text-[20px] font-bold text-accent">{formatCountdown(countdown)}</Text>
             </View>
-            <View className="mt-2.5 h-[3px] overflow-hidden rounded-[2px] bg-[#F1F5F9]">
-              <View className="h-full bg-[#FE5035]" style={{ width: `${(countdown / EXPANDED_COUNTDOWN_SECONDS) * 100}%` }} />
+            <View className="mt-2.5 h-[3px] overflow-hidden rounded-[2px] bg-slate-100">
+              <View className="h-full bg-accent" style={{ width: `${(countdown / EXPANDED_COUNTDOWN_SECONDS) * 100}%` }} />
             </View>
 
             <View className="mt-5 flex-row gap-3">
-              <Pressable className="flex-1 items-center rounded-full border-[1.5px] border-[#E2E8F0] px-0 py-3.5" onPress={() => setShowCancelConfirm(true)}>
-                <Text className="text-[15px] font-semibold text-[#26344F]">Cancel ride</Text>
+              <Pressable className="flex-1 items-center rounded-full border-[1.5px] border-slate-200 px-0 py-3.5" onPress={() => setShowCancelConfirm(true)}>
+                <Text className="text-[15px] font-semibold text-primary">Cancel ride</Text>
               </Pressable>
-              <Pressable className="flex-1 items-center rounded-full bg-[#26344F] px-0 py-3.5" onPress={toggleDetails}>
+              <Pressable className="flex-1 items-center rounded-full bg-primary px-0 py-3.5" onPress={toggleDetails}>
                 <Text className="text-[15px] font-semibold text-white">Details</Text>
               </Pressable>
             </View>

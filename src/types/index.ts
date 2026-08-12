@@ -9,7 +9,7 @@
 // desync app role state from the persisted account type. Domain-facing code
 // should say "Customer", but this specific literal is a documented legacy
 // exception. See AGENTS.md's Naming section and Phase 10F's terminology
-// report in audit_export/.
+// report in audit_reports/.
 export type UserRole = 'passenger' | 'driver';
 
 // Matches the customers_account_status_check DB constraint.

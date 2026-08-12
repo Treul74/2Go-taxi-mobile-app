@@ -28,7 +28,7 @@ export function BookForSomeoneModal({
     const [contacts, setContacts] = useState<any[]>([]);
     const [filteredContacts, setFilteredContacts] = useState<any[]>([]);
     const [searchQuery, setSearchQuery] = useState('');
-    const [loading, setLoading] = useState(false);
+    const [loading, setLoading] = useState(true);
     const [selectedContact, setSelectedContact] = useState<{ id?: string; name: string; phone: string } | null>(
         initialValue ? { name: initialValue.name, phone: initialValue.phone } : null
     );

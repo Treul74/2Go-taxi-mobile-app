@@ -219,7 +219,11 @@ export default function DriverNavigationScreen() {
         // switch now reads NavigationStore.navigationEnabled instead of a
         // screen-local flag — camera behaviour still doesn't depend on it
         // (Phase 6A).
-        navigation.setNavigationEnabled(true);
+        if (routeCoordinates.length > 0) {
+            navigation.setNavigationEnabled(true);
+        } else if (routeError) {
+            calculateRoute();
+        }
     };
 
     const handleArrived = async () => {
@@ -503,11 +507,12 @@ export default function DriverNavigationScreen() {
                                 <View className="gap-3">
                                     <Button
                                         variant="primary"
-                                        leftIcon="navigate"
+                                        leftIcon={routeError ? "refresh" : "navigate"}
                                         onPress={handleStartPickup}
+                                        loading={isCalculating}
                                         fullWidth
                                     >
-                                        Start Pickup
+                                        {routeError ? 'Retry Route' : 'Start Pickup'}
                                     </Button>
                                 </View>
                             </Card>

@@ -73,7 +73,7 @@ const RoutePolylineLayer = React.memo(function RoutePolylineLayer({
       {overviewRouteCoordinates && overviewRouteCoordinates.length > 0 && (
         <Polyline
           coordinates={overviewRouteCoordinates}
-          strokeColor="#9CA3AF"
+          strokeColor={colors.secondary}
           strokeWidth={5}
           lineCap="round"
           lineJoin="round"

@@ -385,8 +385,6 @@ export interface NavigationActions {
  * internals).
  */
 export interface NavigationDataActions {
-  /** Unconditionally sets the active route. Engine/caller assumes validity. */
-  setRoute: (route: RouteData | null) => void;
   /** Sets the full trip overview route (pickup -> destination). */
   setOverviewRoute: (route: RouteData | null) => void;
   /** Records the current position/heading/speed from the device hardware. */

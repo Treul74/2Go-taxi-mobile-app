@@ -45,11 +45,15 @@ export function LocationAutocomplete({
       return;
     }
 
+    let cancelled = false;
+
     const timer = setTimeout(async () => {
       setIsSearching(true);
       setNotFound(false);
       try {
         const outcome = await searchLocation(query, userLocation);
+
+        if (cancelled) return;
 
         if (outcome.type === 'resolved') {
           setResolvedResult(outcome.result);
@@ -63,16 +67,22 @@ export function LocationAutocomplete({
           setNotFound(true);
         }
       } catch (error) {
+        if (cancelled) return;
         console.error('Location search error:', error);
         setSuggestions([]);
         setResolvedResult(null);
         setNotFound(true);
       } finally {
-        setIsSearching(false);
+        if (!cancelled) {
+          setIsSearching(false);
+        }
       }
     }, 300); // 300ms debounce
 
-    return () => clearTimeout(timer);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
   }, [query, userLocation]);
 
   const handleSelectSuggestion = useCallback(async (prediction: PlacePrediction) => {

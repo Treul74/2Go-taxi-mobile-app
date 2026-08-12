@@ -223,7 +223,10 @@ export default function DriverTripScreen() {
         : '...';
 
     const arrivalTime = useMemo(() => {
-        const mins = Math.ceil(parseFloat(distance) * 2);
+        const parsedDistance = distance === '...' ? NaN : parseFloat(distance);
+        if (!Number.isFinite(parsedDistance)) return '...';
+        
+        const mins = Math.ceil(parsedDistance * 2);
         const arrival = new Date(Date.now() + mins * 60000);
         return arrival.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     }, [distance]);

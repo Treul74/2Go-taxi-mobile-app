@@ -128,6 +128,7 @@ export interface GPSManagerEventPayloadMap {
   BACKGROUND_STARTED: Record<string, never>;
   BACKGROUND_STOPPED: Record<string, never>;
   PERMISSION_CHANGED: GPSPermissionStatus;
+  APPROXIMATE_LOCATION_FOUND: { fix: GPSFix };
 }
 
 export type GPSManagerEventType = keyof GPSManagerEventPayloadMap;
@@ -195,6 +196,11 @@ export function onFix(listener: GPSFixListener): () => void {
 /** Sugar over `on('STATUS_CHANGED', ...)` for callers that just want the new status. */
 export function onStatusChange(listener: GPSStatusListener): () => void {
   return on('STATUS_CHANGED', (event) => listener(event.payload.next));
+}
+
+/** Sugar over `on('APPROXIMATE_LOCATION_FOUND', ...)` for the provisional visual bootstrap position. */
+export function onApproximateFix(listener: GPSFixListener): () => void {
+  return on('APPROXIMATE_LOCATION_FOUND', (event) => listener(event.payload.fix));
 }
 
 // ---------------------------------------------------------------------------
@@ -803,18 +809,9 @@ async function performStart(mode: GPSTrackingMode, profile: GPSProfile, force: b
       if (fix) {
         fix.isApproximate = true;
         fix.quality = 'POOR'; // Force it to poor so it's treated as a fallback
-
-        const previousHeading = lastFix?.heading;
-        const previousSpeed = lastFix?.speed;
-        lastFix = fix;
-        
-        emit('LOCATION_UPDATED', { fix });
-        if (fix.heading !== undefined && fix.heading !== previousHeading) {
-          emit('HEADING_UPDATED', { heading: fix.heading });
-        }
-        if (fix.speed !== undefined && fix.speed !== previousSpeed) {
-          emit('SPEED_UPDATED', { speed: fix.speed });
-        }
+        // Do NOT update lastFix or emit the authoritative LOCATION_UPDATED events.
+        // This is only a provisional visual bootstrap position.
+        emit('APPROXIMATE_LOCATION_FOUND', { fix });
       }
     }
   }).catch(() => { /* silent */ });

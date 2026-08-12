@@ -170,9 +170,21 @@ export function NavigationProvider({ children }: NavigationProviderProps) {
     const unsubscribeStatus = GPSManager.onStatusChange((status) => {
       useNavigationStore.getState().setGpsStatus(status);
     });
+    
+    // Listen for the provisional bootstrap position to show a marker quickly,
+    // but without marking GPS readiness or feeding navigation/route decisions.
+    const unsubscribeApproximate = GPSManager.onApproximateFix((fix) => {
+      if (useNavigationStore.getState().actor === 'customer') {
+        useNavigationStore.setState({ customerLocation: fix.coordinate });
+      } else {
+        useNavigationStore.getState().setDriverLocation(fix.coordinate, fix.heading);
+      }
+    });
+
     return () => {
       unsubscribeFix();
       unsubscribeStatus();
+      unsubscribeApproximate();
     };
   }, []);
 
