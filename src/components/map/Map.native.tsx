@@ -50,83 +50,7 @@ try {
 // it can be memoized independently of the driver marker.
 // ---------------------------------------------------------------------------
 
-interface RoutePolylineLayerProps {
-  showRoute: boolean;
-  routeCoordinates: { latitude: number; longitude: number }[];
-  overviewRouteCoordinates?: { latitude: number; longitude: number }[];
-  directionArrows: { coordinate: { latitude: number; longitude: number }; bearing: number }[];
-  turnHighlights: { latitude: number; longitude: number }[][];
-}
 
-const RoutePolylineLayer = React.memo(function RoutePolylineLayer({
-  showRoute,
-  routeCoordinates,
-  overviewRouteCoordinates,
-  directionArrows,
-  turnHighlights,
-}: RoutePolylineLayerProps) {
-  if (!showRoute && (!overviewRouteCoordinates || overviewRouteCoordinates.length === 0)) return null;
-
-  return (
-    <>
-      {/* Layer 0: Overview Route (underneath the active route) */}
-      {overviewRouteCoordinates && overviewRouteCoordinates.length > 0 && (
-        <Polyline
-          coordinates={overviewRouteCoordinates}
-          strokeColor={colors.secondary}
-          strokeWidth={5}
-          lineCap="round"
-          lineJoin="round"
-          lineDashPattern={[1, 10]}
-          zIndex={0}
-        />
-      )}
-
-      {/* Layer 1: Base Route */}
-      {showRoute && routeCoordinates.length > 0 && (
-        <Polyline
-          coordinates={routeCoordinates}
-          strokeColor={colors.accent}
-          strokeWidth={5}
-          lineCap="round"
-          lineJoin="round"
-          zIndex={1}
-        />
-      )}
-
-      {/* Layer 2: Direction Arrows */}
-      {directionArrows.map((arrow, index) => (
-        <Marker
-          key={`arrow-${index}`}
-          coordinate={arrow.coordinate}
-          anchor={{ x: 0.5, y: 0.5 }}
-          flat={true}
-          tracksViewChanges={false}
-          zIndex={2}
-        >
-          <View style={{ transform: [{ rotate: `${arrow.bearing}deg` }] }}>
-            <Ionicons name="chevron-forward" size={12} color="#1F2937" />
-          </View>
-        </Marker>
-      ))}
-
-      {/* Layer 3: Turn Highlights (Yellow Segments) — rendered after (and
-          z-indexed above) the base route so upcoming turns stay visible
-          over the orange line rather than blending under it */}
-      {turnHighlights.map((segment, index) => (
-        <Polyline
-          key={`turn-${index}`}
-          coordinates={segment}
-          strokeColor="#F4C430"
-          strokeWidth={5}
-          lineCap="round"
-          lineJoin="round"
-          zIndex={3}
-        />
-      ))}
-    </>
-  );
-});
 
 interface PickupDestinationLayerProps {
   pickup: MapProps['pickup'];
@@ -317,6 +241,7 @@ export const Map = React.forwardRef<any, MapProps>(({
   mapType = 'standard',
   driverLocation,
   driverHeading = 0,
+  cameraBearing = 0,
   driverVehicleVariant = 'comfort',
   navigationArrowMode = false,
   vehicles = [],
@@ -586,6 +511,7 @@ export const Map = React.forwardRef<any, MapProps>(({
               key="driver-marker"
               coordinate={snappedDriver.position}
               heading={snappedDriver.heading}
+              cameraBearing={cameraBearing}
             />
           ) : isDriverOwnMap ? (
             <DriverStaticPositionMarker
@@ -597,6 +523,7 @@ export const Map = React.forwardRef<any, MapProps>(({
               key="driver-marker"
               coordinate={snappedDriver.position}
               heading={snappedDriver.heading}
+              cameraBearing={cameraBearing}
               variant={driverVehicleVariant}
             />
           )
@@ -609,6 +536,7 @@ export const Map = React.forwardRef<any, MapProps>(({
               key="driver-marker"
               coordinate={driverLocation}
               heading={driverHeading}
+              cameraBearing={cameraBearing}
             />
           )
         )}
@@ -643,13 +571,61 @@ export const Map = React.forwardRef<any, MapProps>(({
           etaPosition={etaPosition}
         />
 
-        <RoutePolylineLayer
-          showRoute={showRoute}
-          routeCoordinates={routeCoordinates}
-          overviewRouteCoordinates={overviewRouteCoordinates}
-          directionArrows={directionArrows}
-          turnHighlights={turnHighlights}
-        />
+        {/* Layer 0: Overview Route (underneath the active route) */}
+        {overviewRouteCoordinates && overviewRouteCoordinates.length > 0 && (
+          <Polyline
+            coordinates={overviewRouteCoordinates}
+            strokeColor={colors.secondary}
+            strokeWidth={5}
+            lineCap="round"
+            lineJoin="round"
+            lineDashPattern={[1, 10]}
+            zIndex={0}
+          />
+        )}
+
+        {/* Layer 1: Base Route */}
+        {showRoute && routeCoordinates.length > 0 && (
+          <Polyline
+            coordinates={routeCoordinates}
+            strokeColor={colors.accent}
+            strokeWidth={5}
+            lineCap="round"
+            lineJoin="round"
+            zIndex={1}
+          />
+        )}
+
+        {/* Layer 2: Direction Arrows */}
+        {directionArrows.map((arrow, index) => (
+          <Marker
+            key={`arrow-${index}`}
+            coordinate={arrow.coordinate}
+            anchor={{ x: 0.5, y: 0.5 }}
+            flat={true}
+            tracksViewChanges={false}
+            zIndex={2}
+          >
+            <View style={{ transform: [{ rotate: `${arrow.bearing}deg` }] }}>
+              <Ionicons name="chevron-forward" size={12} color="#1F2937" />
+            </View>
+          </Marker>
+        ))}
+
+        {/* Layer 3: Turn Highlights (Yellow Segments) — rendered after (and
+            z-indexed above) the base route so upcoming turns stay visible
+            over the orange line rather than blending under it */}
+        {turnHighlights.map((segment, index) => (
+          <Polyline
+            key={`turn-${index}`}
+            coordinates={segment}
+            strokeColor="#F4C430"
+            strokeWidth={5}
+            lineCap="round"
+            lineJoin="round"
+            zIndex={3}
+          />
+        ))}
       </MapView>
 
       {/* Zoom Controls — `handleZoom` drives the camera directly via

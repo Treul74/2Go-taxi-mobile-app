@@ -14,7 +14,7 @@ import { useDriverTelemetryPing } from '@/hooks';
 import { calculateDistanceKm } from '@/lib/distance';
 import * as GPSManager from '@/navigation/NavigationEngine/GPSManager';
 import { useNavigation } from '@/navigation/NavigationEngine/hooks/useNavigation';
-import { useDriverLocation, useHeading } from '@/navigation/NavigationEngine/NavigationHooks';
+import { useActiveRoute, useDriverLocation, useHeading } from '@/navigation/NavigationEngine/NavigationHooks';
 import { fetchRoute } from '@/navigation/NavigationEngine/RouteEngine';
 import { safeTransition } from '@/navigation/NavigationEngine/safeTransition';
 import { useNavigationStore } from '@/navigation/NavigationEngine/NavigationStore';
@@ -50,8 +50,11 @@ export default function DriverTripScreen() {
     // NavigationEngine/Architecture.md's Rollout plan step 6).
     const driverLocation = useDriverLocation();
     const heading = useHeading();
+    const route = useActiveRoute();
+    const routeCoordinates = route?.path ?? [];
 
     const [elapsedTime, setElapsedTime] = useState(0);
+    const [isCalculating, setIsCalculating] = useState(false);
 
     // Actual GPS distance travelled so far this trip (accumulated from
     // consecutive location fixes below), used only for the final fare
@@ -184,18 +187,42 @@ export default function DriverTripScreen() {
     // Directions (src/navigation/NavigationEngine/RouteEngine.ts).
     // NavigationStore is the sole owner of route data — NavigationMap /
     // NavigationTurnBanner / RouteProgressTracker all read it from there.
-    useEffect(() => {
+    const calculateRoute = async () => {
         if (!driverLocation || !currentTrip) return;
-        let cancelled = false;
-        (async () => {
-            const route = await fetchRoute(driverLocation, currentTrip.destination);
-            if (!route || cancelled) return;
-            useNavigationStore.getState().setRoute(route);
-        })();
-        return () => {
-            cancelled = true;
-        };
-    }, [driverLocation?.latitude, driverLocation?.longitude, currentTrip?.destination?.latitude, currentTrip?.destination?.longitude]);
+        if (isCalculating) return;
+
+        setIsCalculating(true);
+        try {
+            const fetchedRoute = await fetchRoute(driverLocation, currentTrip.destination);
+            if (fetchedRoute) {
+                useNavigationStore.getState().setRoute(fetchedRoute);
+            }
+        } catch (error) {
+            console.error('Error calculating route:', error);
+        } finally {
+            setIsCalculating(false);
+        }
+    };
+
+    // Auto-calculate live route on location update if no active route or wrong destination
+    useEffect(() => {
+        if (!currentTrip || !driverLocation) return;
+        
+        const hasNoRoute = routeCoordinates.length === 0;
+        let isWrongDestination = false;
+        
+        if (route?.destination) {
+            const dest = currentTrip.destination;
+            const latDiff = Math.abs(route.destination.latitude - dest.latitude);
+            const lngDiff = Math.abs(route.destination.longitude - dest.longitude);
+            // 0.0001 deg is ~11 meters, safe tolerance for floating point matching
+            isWrongDestination = latDiff > 0.0001 || lngDiff > 0.0001;
+        }
+
+        if (hasNoRoute || isWrongDestination) {
+            calculateRoute();
+        }
+    }, [currentTrip, driverLocation, route?.destination?.latitude, route?.destination?.longitude]);
 
     // Timer
     useEffect(() => {

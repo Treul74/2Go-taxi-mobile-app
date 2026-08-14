@@ -2,14 +2,11 @@ import { getHex9 } from '@/core/spatialEngine';
 import { vehicleIcons } from '@/features/customer/components/VehicleCard';
 import { getActiveFareSurcharge } from '@/lib/fareSurcharge';
 import { getDistanceMatrix } from '@/lib/google/mapsApi';
-import { sendPushNotification } from '@/lib/notifications';
-import { fetchNearbyDriverPushTokens } from '@/services/driverOrders';
 import {
   cancelOrder,
   createOrder,
   fetchCustomerOrderHistory,
   fetchOrderDriver,
-  fetchOwnCustomerPushToken,
   subscribeToOrderUpdates,
   unsubscribeFromOrder,
   type OrderUpdatePayload,
@@ -439,10 +436,6 @@ export const useRideStore = create<RideState>((set, get) => ({
 
     set({ orderId: order.id, orderFare: order.fareAmount });
 
-    fetchNearbyDriverPushTokens(state.selectedVehicle, state.pickup).then((tokens) => {
-      tokens.forEach((token) => sendPushNotification(token, 'New ride request', 'New ride request nearby'));
-    });
-
     const subscribeError = await subscribeToOrderUpdates(order.id, (update) => {
       get().applyOrderUpdate(update);
     });
@@ -568,9 +561,6 @@ export const useRideStore = create<RideState>((set, get) => ({
       case 'expired':
         // Cancelled server-side (driver/admin) or expired unmatched — clean up locally
         unsubscribeFromOrder(update.id);
-        fetchOwnCustomerPushToken().then((token) => {
-          sendPushNotification(token, 'No driver found', 'No driver found, please try again');
-        });
         set({ status: 'idle', activeTrip: null, orderId: null, orderFare: null });
         return;
     }
@@ -588,9 +578,8 @@ export const useRideStore = create<RideState>((set, get) => ({
 
     if (state.orderId) {
       unsubscribeFromOrder(state.orderId);
-      cancelOrder(state.orderId).then(({ errorMessage, driverPushToken }) => {
+      cancelOrder(state.orderId).then(({ errorMessage }) => {
         if (errorMessage) console.error('Failed to cancel order:', errorMessage);
-        sendPushNotification(driverPushToken, 'Ride cancelled', 'Ride was cancelled');
       });
     }
 

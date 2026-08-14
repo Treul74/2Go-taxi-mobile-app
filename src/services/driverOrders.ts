@@ -1,11 +1,7 @@
-import { getHex9, getNearbyHexes } from '@/core/spatialEngine';
+import { isInvalidTokenError } from '@/lib/auth';
 import { insforge } from '@/lib/insforge';
-import type { Location, VehicleType } from '@/types';
-
-// Matches driverStore's NEARBY_HEX_RING — the same "nearby" radius used to
-// filter incoming requests down to this driver is used in reverse here, to
-// find drivers near a freshly-created order.
-const NEARBY_HEX_RING = 6;
+import { useAuthStore } from '@/state/authStore';
+import type { VehicleType } from '@/types';
 
 /**
  * Driver-side order discovery and acceptance against InsForge.
@@ -51,73 +47,44 @@ export async function fetchPendingOrders(
   return data;
 }
 
-interface NearbyDriverRow {
-  push_token: string | null;
-  current_lat: number | null;
-  current_lng: number | null;
-}
-
-/**
- * Push tokens of online, approved drivers of the matching vehicle type within
- * range of a freshly-created order's pickup point. Called from
- * rideStore.requestRide() to notify nearby drivers of a new ride request.
- */
-export async function fetchNearbyDriverPushTokens(
-  vehicleType: VehicleType,
-  pickup: Location
-): Promise<string[]> {
-  const { data, error } = await insforge.database
-    .from('drivers')
-    .select('push_token, current_lat, current_lng')
-    .eq('vehicle_type', vehicleType)
-    .eq('driver_status', 'online')
-    .eq('is_approved', true)
-    .not('push_token', 'is', null)
-    .returns<NearbyDriverRow[]>();
-
-  if (error || !data) return [];
-
-  const pickupHex9 = getHex9(pickup.latitude, pickup.longitude);
-  const nearbyHexes = new Set(getNearbyHexes(pickupHex9, NEARBY_HEX_RING));
-
-  return data
-    .filter((d) => d.current_lat != null && d.current_lng != null)
-    .filter((d) => nearbyHexes.has(getHex9(d.current_lat as number, d.current_lng as number)))
-    .map((d) => d.push_token)
-    .filter((token): token is string => !!token);
-}
-
-interface OrderCustomerPushRow {
+interface OrderIdRow {
   id: string;
-  customers: { push_token: string | null } | null;
 }
 
 /**
  * Accepts a pending order for the given driver. Fails (with a friendly
- * message) if another driver already claimed it first. Also returns the
- * customer's push token so the caller can notify them the ride was accepted.
+ * message) if another driver already claimed it first.
  */
 export async function acceptOrder(
   orderId: string,
   driverId: string
-): Promise<{ errorMessage: string | null; customerPushToken: string | null }> {
-  const { data, error } = await insforge.database
-    .from('orders')
-    .update({
-      status: 'accepted',
-      driver_id: driverId,
-      accepted_at: new Date().toISOString(),
-    })
-    .eq('id', orderId)
-    .eq('status', 'pending')
-    .is('driver_id', null)
-    .select('id, customers(push_token)')
-    .single<OrderCustomerPushRow>();
+): Promise<{ errorMessage: string | null }> {
+  const update = () =>
+    insforge.database
+      .from('orders')
+      .update({
+        status: 'accepted',
+        driver_id: driverId,
+        accepted_at: new Date().toISOString(),
+      })
+      .eq('id', orderId)
+      .eq('status', 'pending')
+      .is('driver_id', null)
+      .select('id')
+      .single<OrderIdRow>();
+
+  let { data, error } = await update();
+
+  // The access token minted at login can expire mid-trip -- refresh once and
+  // retry rather than surfacing a stale-token error as a failure.
+  if (isInvalidTokenError(error) && (await useAuthStore.getState().refreshSession())) {
+    ({ data, error } = await update());
+  }
 
   if (error || !data) {
-    return { errorMessage: 'This ride was just taken by another driver.', customerPushToken: null };
+    return { errorMessage: 'This ride was just taken by another driver.' };
   }
-  return { errorMessage: null, customerPushToken: data.customers?.push_token ?? null };
+  return { errorMessage: null };
 }
 
 /** Persists the driver's live position/heading to the order row (called on a 5s interval while an order is active). */
@@ -127,14 +94,23 @@ export async function updateDriverTelemetry(
   longitude: number,
   heading: number
 ): Promise<string | null> {
-  const { error } = await insforge.database
-    .from('orders')
-    .update({
-      driver_current_lat: latitude,
-      driver_current_lng: longitude,
-      driver_heading: heading,
-    })
-    .eq('id', orderId);
+  const update = () =>
+    insforge.database
+      .from('orders')
+      .update({
+        driver_current_lat: latitude,
+        driver_current_lng: longitude,
+        driver_heading: heading,
+      })
+      .eq('id', orderId);
+
+  let { error } = await update();
+
+  // The access token minted at login can expire mid-trip -- refresh once and
+  // retry rather than surfacing a stale-token error as a failure.
+  if (isInvalidTokenError(error) && (await useAuthStore.getState().refreshSession())) {
+    ({ error } = await update());
+  }
 
   return error ? error.message : null;
 }
@@ -142,46 +118,59 @@ export async function updateDriverTelemetry(
 /**
  * Marks the driver arrived at pickup. Status stays 'accepted' -- the
  * customer app reads driver_arrived_at itself to show "driver waiting";
- * startOrderTrip() is what advances status to 'in_progress'. Also returns the
- * customer's push token so the caller can notify them the driver has arrived.
+ * startOrderTrip() is what advances status to 'in_progress'.
  */
 export async function markDriverArrived(
   orderId: string
-): Promise<{ errorMessage: string | null; customerPushToken: string | null }> {
-  const { data, error } = await insforge.database
-    .from('orders')
-    .update({ driver_arrived_at: new Date().toISOString() })
-    .eq('id', orderId)
-    .eq('status', 'accepted')
-    .select('id, customers(push_token)')
-    .single<OrderCustomerPushRow>();
+): Promise<{ errorMessage: string | null }> {
+  const update = () =>
+    insforge.database
+      .from('orders')
+      .update({ driver_arrived_at: new Date().toISOString() })
+      .eq('id', orderId)
+      .eq('status', 'accepted')
+      .select('id')
+      .single<OrderIdRow>();
+
+  let { data, error } = await update();
+
+  // The access token minted at login can expire mid-trip -- refresh once and
+  // retry rather than surfacing a stale-token error as a failure.
+  if (isInvalidTokenError(error) && (await useAuthStore.getState().refreshSession())) {
+    ({ data, error } = await update());
+  }
 
   if (error || !data) {
-    return { errorMessage: error?.message ?? 'Could not record arrival.', customerPushToken: null };
+    return { errorMessage: error?.message ?? 'Could not record arrival.' };
   }
-  return { errorMessage: null, customerPushToken: data.customers?.push_token ?? null };
+  return { errorMessage: null };
 }
 
-/**
- * Advances an accepted order to 'in_progress' when the driver starts the
- * trip. Also returns the customer's push token so the caller can notify them
- * the trip has started.
- */
+/** Advances an accepted order to 'in_progress' when the driver starts the trip. */
 export async function startOrderTrip(
   orderId: string
-): Promise<{ errorMessage: string | null; customerPushToken: string | null }> {
-  const { data, error } = await insforge.database
-    .from('orders')
-    .update({ status: 'in_progress', trip_started_at: new Date().toISOString() })
-    .eq('id', orderId)
-    .eq('status', 'accepted')
-    .select('id, customers(push_token)')
-    .single<OrderCustomerPushRow>();
+): Promise<{ errorMessage: string | null }> {
+  const update = () =>
+    insforge.database
+      .from('orders')
+      .update({ status: 'in_progress', trip_started_at: new Date().toISOString() })
+      .eq('id', orderId)
+      .eq('status', 'accepted')
+      .select('id')
+      .single<OrderIdRow>();
+
+  let { data, error } = await update();
+
+  // The access token minted at login can expire mid-trip -- refresh once and
+  // retry rather than surfacing a stale-token error as a failure.
+  if (isInvalidTokenError(error) && (await useAuthStore.getState().refreshSession())) {
+    ({ data, error } = await update());
+  }
 
   if (error || !data) {
-    return { errorMessage: error?.message ?? 'Could not start the trip.', customerPushToken: null };
+    return { errorMessage: error?.message ?? 'Could not start the trip.' };
   }
-  return { errorMessage: null, customerPushToken: data.customers?.push_token ?? null };
+  return { errorMessage: null };
 }
 
 export interface CompletedOrderTotals {
@@ -199,8 +188,7 @@ export interface CompletedOrderTotals {
  * service_fee_amount, and driver_earnings before this call's .select() reads
  * them back. completedAt is sent for completeness but the trigger always
  * overwrites completed_at with its own now() -- it has no effect on the
- * computed fare. Also returns the customer's push token so the caller can
- * notify them the trip is complete.
+ * computed fare.
  */
 export async function completeOrderTrip(
   orderId: string,
@@ -210,31 +198,37 @@ export async function completeOrderTrip(
 ): Promise<{
   totals: CompletedOrderTotals | null;
   errorMessage: string | null;
-  customerPushToken: string | null;
 }> {
-  const { data, error } = await insforge.database
-    .from('orders')
-    .update({
-      status: 'completed',
-      actual_distance_km: actualDistanceKm,
-      actual_waiting_minutes: actualWaitingMinutes,
-      completed_at: completedAt,
-    })
-    .eq('id', orderId)
-    .eq('status', 'in_progress')
-    .select('fare_amount, service_fee_amount, driver_earnings, customers(push_token)')
-    .single<{
-      fare_amount: number | string;
-      service_fee_amount: number | string | null;
-      driver_earnings: number | string | null;
-      customers: { push_token: string | null } | null;
-    }>();
+  const update = () =>
+    insforge.database
+      .from('orders')
+      .update({
+        status: 'completed',
+        actual_distance_km: actualDistanceKm,
+        actual_waiting_minutes: actualWaitingMinutes,
+        completed_at: completedAt,
+      })
+      .eq('id', orderId)
+      .eq('status', 'in_progress')
+      .select('fare_amount, service_fee_amount, driver_earnings')
+      .single<{
+        fare_amount: number | string;
+        service_fee_amount: number | string | null;
+        driver_earnings: number | string | null;
+      }>();
+
+  let { data, error } = await update();
+
+  // The access token minted at login can expire mid-trip -- refresh once and
+  // retry rather than surfacing a stale-token error as a failure.
+  if (isInvalidTokenError(error) && (await useAuthStore.getState().refreshSession())) {
+    ({ data, error } = await update());
+  }
 
   if (error || !data) {
     return {
       totals: null,
       errorMessage: error?.message ?? 'Could not complete the trip. Please try again.',
-      customerPushToken: null,
     };
   }
 
@@ -244,7 +238,6 @@ export async function completeOrderTrip(
   return {
     totals: { fareAmount: fare, serviceFeeAmount: serviceFee, netEarnings },
     errorMessage: null,
-    customerPushToken: data.customers?.push_token ?? null,
   };
 }
 

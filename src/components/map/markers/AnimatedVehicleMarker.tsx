@@ -9,6 +9,8 @@ export interface AnimatedVehicleMarkerProps {
   coordinate: AnimatedMarkerCoordinate;
   /** Latest compass heading in degrees (0 = north). */
   heading?: number;
+  /** Latest camera bearing in degrees. */
+  cameraBearing?: number;
   /** Ride tier deciding the car body color. Ignored when `color` is set. */
   variant?: VehicleMarkerVariant;
   /** Explicit body color override. */
@@ -37,18 +39,19 @@ export interface AnimatedVehicleMarkerProps {
 function VehicleMarker({
   coordinate,
   heading = 0,
+  cameraBearing = 0,
   variant = 'economy',
   color,
   size = DEFAULT_VEHICLE_MARKER_SIZE,
   zIndex,
 }: AnimatedVehicleMarkerProps) {
-  const { animatedProps } = useAnimatedMarker({ coordinate, heading });
+  const { animatedProps } = useAnimatedMarker({ coordinate, heading, cameraBearing });
 
   // Frozen at mount: after the first render, Reanimated owns the native
   // coordinate/rotation props. Keeping the React-managed values stable stops
   // reconciliation from ever snapping the marker back to a stale position.
   const initialCoordinate = useRef(coordinate).current;
-  const initialRotation = useRef(normalizeHeading(heading)).current;
+  const initialRotation = useRef(normalizeHeading(heading - cameraBearing)).current;
 
   // Stable element: coordinate/heading updates re-render this wrapper, but the
   // SVG element identity only changes when its appearance actually changes,
@@ -69,7 +72,7 @@ function VehicleMarker({
       coordinate={initialCoordinate}
       rotation={initialRotation}
       anchor={CENTER_ANCHOR}
-      flat={true}
+      flat={false}
       tracksViewChanges={false}
       zIndex={zIndex}
     >
@@ -90,6 +93,7 @@ function arePropsEqual(
     prev.coordinate.latitude === next.coordinate.latitude &&
     prev.coordinate.longitude === next.coordinate.longitude &&
     prev.heading === next.heading &&
+    prev.cameraBearing === next.cameraBearing &&
     prev.variant === next.variant &&
     prev.color === next.color &&
     prev.size === next.size &&

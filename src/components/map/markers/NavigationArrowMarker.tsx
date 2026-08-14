@@ -12,6 +12,8 @@ export interface NavigationArrowMarkerProps {
   coordinate: AnimatedMarkerCoordinate;
   /** Latest heading in degrees (0 = north). Falls back to 0 when unavailable. */
   heading?: number;
+  /** Latest camera bearing in degrees. */
+  cameraBearing?: number;
   /** Icon size in px. */
   size?: number;
   /** Marker stacking order on the map. */
@@ -50,15 +52,16 @@ function ArrowIcon({ size = DEFAULT_NAVIGATION_ARROW_SIZE }: { size?: number }) 
 function NavigationArrow({
   coordinate,
   heading = 0,
+  cameraBearing = 0,
   size = DEFAULT_NAVIGATION_ARROW_SIZE,
   zIndex,
 }: NavigationArrowMarkerProps) {
-  const { animatedProps } = useAnimatedMarker({ coordinate, heading });
+  const { animatedProps } = useAnimatedMarker({ coordinate, heading, cameraBearing });
 
   // Frozen at mount — Reanimated owns the native coordinate/rotation props
   // afterwards (see AnimatedVehicleMarker for the full rationale).
   const initialCoordinate = useRef(coordinate).current;
-  const initialRotation = useRef(normalizeHeading(heading)).current;
+  const initialRotation = useRef(normalizeHeading(heading - cameraBearing)).current;
 
   const arrowIcon = useMemo(() => <ArrowIcon size={size} />, [size]);
 
@@ -73,7 +76,7 @@ function NavigationArrow({
       coordinate={initialCoordinate}
       rotation={initialRotation}
       anchor={CENTER_ANCHOR}
-      flat={true}
+      flat={false}
       tracksViewChanges={false}
       zIndex={zIndex}
     >
@@ -90,6 +93,7 @@ function arePropsEqual(
     prev.coordinate.latitude === next.coordinate.latitude &&
     prev.coordinate.longitude === next.coordinate.longitude &&
     prev.heading === next.heading &&
+    prev.cameraBearing === next.cameraBearing &&
     prev.size === next.size &&
     prev.zIndex === next.zIndex
   );

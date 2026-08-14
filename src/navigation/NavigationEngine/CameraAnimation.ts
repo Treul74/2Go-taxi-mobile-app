@@ -137,13 +137,6 @@ export interface CameraLookAhead {
   bearingDegrees: number;
 }
 
-/** A meter-space offset used to bias the camera's look-at point away from the actor's raw coordinate (e.g. so the driver marker sits at 65-70% down the screen instead of dead center). */
-export interface CameraOffset {
-  /** Meters shifted along the direction of travel; positive = ahead of the actor. */
-  forwardMeters: number;
-  /** Meters shifted perpendicular to the direction of travel; positive = to the right of the travel direction. */
-  lateralMeters: number;
-}
 
 /** The result of compensating a stale fix for processing/network lag. */
 export interface CameraLagResult {
@@ -670,28 +663,6 @@ export function calculateLookAheadPoint(position: LatLng, bearingDegrees: number
     distanceMeters: lookAheadDistanceMeters,
     bearingDegrees: normalizeHeading(bearingDegrees),
   };
-}
-
-/**
- * Purpose: Compute the forward/lateral meter-space offset that keeps the
- * driver anchored at the Bible's 65-70%-down-screen follow position instead
- * of dead center, scaled by speed so a stopped vehicle sits closer to center
- * and a fast-moving one has more road visible ahead.
- * Parameters: `speedMetersPerSecond` — current speed; `followAnchorRatio` —
- * 0 (top) - 1 (bottom) target screen position, from the mode's
- * `CameraProfile.followAnchorRatio`.
- * Return value: a `CameraOffset` (forward/lateral meters; lateral is always
- * 0 here — this file doesn't reason about screen-space anchoring directly,
- * only the forward component of it — CameraController combines this with
- * `followAnchorRatio` to place the marker on screen).
- * Example: `calculateForwardOffset(15, 0.68)` -> a forward offset scaled by
- * both speed and how far off-center the anchor is.
- * Performance: O(1).
- */
-export function calculateForwardOffset(speedMetersPerSecond: number, followAnchorRatio: number): CameraOffset {
-  const centerBias = clamp(followAnchorRatio - 0.5, 0, 0.5) * 2; // 0 at dead-center, 1 at the bottom edge
-  const forwardMeters = calculateLookAheadDistance(speedMetersPerSecond) * centerBias;
-  return { forwardMeters, lateralMeters: 0 };
 }
 
 // ---------------------------------------------------------------------------

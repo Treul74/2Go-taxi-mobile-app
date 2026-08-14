@@ -75,6 +75,9 @@ export interface MapProps {
   /** Driver heading in degrees for car rotation */
   driverHeading?: number;
 
+  /** Camera bearing in degrees for screen-aligned rotation compensation */
+  cameraBearing?: number;
+
   /** Only 'offline' changes rendering (dims the marker); defaults to 'comfort' */
   driverVehicleVariant?: VehicleMarkerVariant;
 

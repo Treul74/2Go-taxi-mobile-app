@@ -1,11 +1,5 @@
-// Must be the first import — registers a LogBox filter before anything else
-// here pulls in expo-notifications, which warns at import time on Android/Expo Go.
-import '@/lib/suppressExpoGoWarnings';
-
 import { FareReceiptModal } from '@/features/customer/components';
-import { useNotificationTapNavigation } from '@/hooks/useNotificationTapNavigation';
 import { insforge } from '@/lib/insforge';
-import { registerPushToken, requestNotificationPermissions } from '@/lib/notifications';
 import '@/lib/polyfills';
 import { NavigationProvider } from '@/navigation/NavigationEngine/providers/NavigationProvider';
 import { useAuthStore } from '@/state/authStore';
@@ -206,29 +200,6 @@ export default function RootLayout() {
     const canAccessDriverMode = role === 'driver' && driverAccount?.accountStatus === 'approved';
     router.replace(canAccessDriverMode ? '/(tabs)' : '/discover');
   }, [appReady, authed]);
-
-  // Push notification setup — permission prompt on first open after login,
-  // then the Expo push token is saved to the customers/drivers rows
-  // (src/lib/notifications.ts). Fire-and-forget: registration failures must
-  // never block startup. Once per logged-in session; the ref resets on sign
-  // out so a different account logging in re-registers this device's token.
-  const pushTokenRegistered = useRef(false);
-  useEffect(() => {
-    if (!authed) {
-      pushTokenRegistered.current = false;
-      return;
-    }
-    if (!appReady || pushTokenRegistered.current) return;
-    pushTokenRegistered.current = true;
-    (async () => {
-      const granted = await requestNotificationPermissions();
-      if (granted) await registerPushToken();
-    })();
-  }, [appReady, authed]);
-
-  // Opening the app from a notification tap lands on the active trip screen
-  // when a trip is ongoing, home otherwise.
-  useNotificationTapNavigation(appReady && authed);
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
