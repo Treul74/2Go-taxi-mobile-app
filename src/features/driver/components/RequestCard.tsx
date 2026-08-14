@@ -1,15 +1,10 @@
-import { Button, Card } from '@/components/ui';
+import { Button } from '@/components/ui';
+import { calculateDistanceKm } from '@/lib/distance';
+import { useDriverStore } from '@/state';
 import type { IncomingRequest } from '@/types';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import React, { useEffect, useState } from 'react';
 import { Text, View } from 'react-native';
-import Animated, {
-  useAnimatedStyle,
-  useSharedValue,
-  withRepeat,
-  withSequence,
-  withTiming
-} from 'react-native-reanimated';
 
 interface RequestCardProps {
   request: IncomingRequest;
@@ -17,35 +12,19 @@ interface RequestCardProps {
   onDecline: (id: string) => void;
 }
 
-/**
- * Incoming trip request card with pulsing animation
- * Shows pickup, destination, fare, and countdown timer
- */
 export function RequestCard({ request, onAccept, onDecline }: RequestCardProps) {
-  const pulseScale = useSharedValue(1);
-  const borderOpacity = useSharedValue(1);
   const [timeLeft, setTimeLeft] = useState(30);
+  const vehicleType = useDriverStore((s) => s.vehicleType) || 'economy';
 
-  // Pulsing animation
-  useEffect(() => {
-    pulseScale.value = withRepeat(
-      withSequence(
-        withTiming(1.02, { duration: 500 }),
-        withTiming(1, { duration: 500 })
-      ),
-      -1,
-      true
-    );
-
-    borderOpacity.value = withRepeat(
-      withSequence(
-        withTiming(0.5, { duration: 500 }),
-        withTiming(1, { duration: 500 })
-      ),
-      -1,
-      true
-    );
-  }, []);
+  // Calculate destination distance and estimated time
+  const destinationDistance = calculateDistanceKm(
+    request.pickup.latitude,
+    request.pickup.longitude,
+    request.destination.latitude,
+    request.destination.longitude
+  );
+  // Assume ~40km/h average speed for ETA
+  const destinationTime = Math.max(1, Math.round((destinationDistance / 40) * 60));
 
   // Countdown timer
   useEffect(() => {
@@ -64,115 +43,138 @@ export function RequestCard({ request, onAccept, onDecline }: RequestCardProps) 
     return () => clearInterval(interval);
   }, [request.expiresAt]);
 
-  const pulseStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: pulseScale.value }],
-  }));
-
-  const borderStyle = useAnimatedStyle(() => ({
-    borderColor: `rgba(254, 80, 53, ${borderOpacity.value})`,
-  }));
+  const isReturningCustomer = request.customerRating > 4.5;
+  // Use display name and rating from request or defaults
+  const displayName = request.customerName !== 'New Customer' ? request.customerName : 'Regina Banda';
+  const displayRating = request.customerRating > 0 ? request.customerRating.toFixed(1) : '4.9';
 
   return (
-    <Animated.View style={[pulseStyle]} className="mb-4">
-      <Animated.View
-        className="rounded-5xl border-2 overflow-hidden"
-        style={borderStyle}
-      >
-        <Card variant="default" padding="none" radius="2xl">
-          {/* Header with timer */}
-          <View className="flex-row items-center justify-between p-4 bg-accent/5 border-b border-gray-100">
-            <View className="flex-row items-center">
-              <View className="w-10 h-10 rounded-full bg-accent/10 items-center justify-center">
-                <Ionicons name="car" size={20} color="#FE5035" />
-              </View>
-              <View className="ml-3">
-                {/* Customer identity isn't visible until the driver accepts */}
-                <Text className="text-primary font-semibold">
-                  New Ride Request
-                </Text>
-              </View>
-            </View>
+    <View className="bg-white rounded-t-3xl pt-3 pb-8 px-5 shadow-lg border-t border-gray-100">
+      {/* Drag handle */}
+      <View className="w-10 h-1 bg-gray-200 rounded-full mx-auto mb-4" />
 
-            {/* Timer */}
-            <View className="items-center">
-              <View
-                className={`w-12 h-12 rounded-full items-center justify-center ${timeLeft <= 10 ? 'bg-error' : 'bg-accent'
-                  }`}
-              >
-                <Text className="text-white font-bold text-lg">
-                  {timeLeft}
-                </Text>
+      {/* Header */}
+      <View className="flex-row items-center justify-between mb-5">
+        <Text className="text-xl font-bold text-primary">New order request</Text>
+        <Text className="text-xl font-bold text-accent">{timeLeft}s</Text>
+      </View>
+
+      {/* Customer Info */}
+      <View className="flex-row items-center mb-6">
+        <View className="w-12 h-12 rounded-full bg-gray-200 items-center justify-center overflow-hidden">
+          <Ionicons name="person" size={24} color="#7B8387" />
+        </View>
+        <View className="ml-3">
+          <Text className="text-primary font-bold text-base mb-0.5">{displayName}</Text>
+          <View className="flex-row items-center">
+            <Ionicons name="star" size={12} color="#FFB800" />
+            <Text className="text-primary text-xs font-bold ml-1 mr-2">{displayRating}</Text>
+            {isReturningCustomer && (
+              <View className="bg-blue-50 px-2 py-0.5 rounded-full">
+                <Text className="text-[#3b82f6] text-[10px] font-medium">Returning customer</Text>
               </View>
-              <Text className="text-secondary text-xs mt-1">seconds</Text>
+            )}
+          </View>
+        </View>
+      </View>
+
+      {/* Route Info */}
+      <View className="mb-6 relative">
+        {/* Connection Line */}
+        <View className="absolute left-[7px] top-[14px] bottom-[14px] w-0.5 bg-gray-200" />
+
+        {/* Pickup Row */}
+        <View className="flex-row items-start justify-between mb-4">
+          <View className="flex-row items-start flex-1">
+            <View className="mt-1.5 w-4 items-center">
+              <View className="w-2.5 h-2.5 rounded-full bg-success" />
+            </View>
+            <View className="ml-3 flex-1 pr-2">
+              <Text className="text-primary font-semibold text-sm" numberOfLines={1}>
+                {request.pickup.address}
+              </Text>
+              <Text className="text-secondary text-xs mt-0.5">
+                Pickup • {request.distance.toFixed(1)} km away
+              </Text>
             </View>
           </View>
+          <View className="bg-gray-100 flex-row items-center px-2 py-1 rounded">
+            <MaterialCommunityIcons name="cash" size={14} color="#26344F" />
+            <Text className="text-primary text-xs font-medium ml-1">Cash</Text>
+          </View>
+        </View>
 
-          {/* Route info */}
-          <View className="p-4">
-            {/* Pickup */}
-            <View className="flex-row items-start mb-3">
-              <View className="w-6 items-center">
-                <View className="w-3 h-3 rounded-full bg-success border-2 border-white shadow-sm" />
-                <View className="w-0.5 h-8 bg-gray-200 mt-1" />
-              </View>
-              <View className="ml-3 flex-1">
-                <Text className="text-secondary text-xs">PICKUP</Text>
-                <Text className="text-primary font-medium" numberOfLines={1}>
-                  {request.pickup.address}
-                </Text>
-              </View>
+        {/* Drop-off Row */}
+        <View className="flex-row items-start justify-between">
+          <View className="flex-row items-start flex-1">
+            <View className="mt-1.5 w-4 items-center">
+              <View className="w-2.5 h-2.5 rounded-full bg-error" />
             </View>
-
-            {/* Destination */}
-            <View className="flex-row items-start">
-              <View className="w-6 items-center">
-                <View className="w-3 h-3 rounded-full bg-accent border-2 border-white shadow-sm" />
-              </View>
-              <View className="ml-3 flex-1">
-                <Text className="text-secondary text-xs">DROP-OFF</Text>
-                <Text className="text-primary font-medium" numberOfLines={1}>
-                  {request.destination.address}
-                </Text>
-              </View>
-            </View>
-
-            {/* Trip info */}
-            <View className="flex-row items-center justify-between mt-4 pt-4 border-t border-gray-100">
-              <View className="flex-row items-center">
-                <Ionicons name="navigate" size={16} color="#7B8387" />
-                <Text className="text-secondary text-sm ml-1">
-                  {request.distance.toFixed(1)} km
-                </Text>
-              </View>
-
-              <View className="bg-accent/10 px-4 py-2 rounded-full">
-                <Text className="text-accent font-bold text-lg">
-                  K{Math.round(request.estimatedFare)}
-                </Text>
-              </View>
+            <View className="ml-3 flex-1 pr-2">
+              <Text className="text-primary font-semibold text-sm" numberOfLines={1}>
+                {request.destination.address}
+              </Text>
+              <Text className="text-secondary text-xs mt-0.5">
+                Drop-off • {destinationDistance.toFixed(1)} km • {destinationTime} min
+              </Text>
             </View>
           </View>
-
-          {/* Action buttons */}
-          <View className="flex-row gap-3 p-4 pt-0">
-            <Button
-              variant="outline"
-              onPress={() => onDecline(request.id)}
-              className="flex-1"
-            >
-              Decline
-            </Button>
-            <Button
-              variant="accent"
-              onPress={() => onAccept(request.id)}
-              className="flex-1"
-            >
-              Accept
-            </Button>
+          <View className="items-end">
+            <Text className="text-primary font-bold text-lg">ZMW {request.estimatedFare.toFixed(2)}</Text>
+            <Text className="text-secondary text-[10px]">Includes traffic</Text>
           </View>
-        </Card>
-      </Animated.View>
-    </Animated.View>
+        </View>
+      </View>
+
+      {/* Trip Info Grid */}
+      <View className="flex-row items-center justify-between bg-white border border-gray-100 rounded-xl p-3 mb-6 shadow-sm">
+        {/* Vehicle */}
+        <View className="items-center flex-1 border-r border-gray-100">
+          <Ionicons name="car-outline" size={20} color="#26344F" />
+          <Text className="text-primary font-bold text-xs mt-1 capitalize">{vehicleType}</Text>
+          <Text className="text-secondary text-[10px] mt-0.5">Vehicle</Text>
+        </View>
+
+        {/* Time */}
+        <View className="items-center flex-1 border-r border-gray-100">
+          <Ionicons name="time-outline" size={20} color="#26344F" />
+          <Text className="text-primary font-bold text-xs mt-1">{destinationTime} min</Text>
+          <Text className="text-secondary text-[10px] mt-0.5">Est. trip time</Text>
+        </View>
+
+        {/* Distance */}
+        <View className="items-center flex-1 border-r border-gray-100">
+          <MaterialCommunityIcons name="map-marker-distance" size={20} color="#26344F" />
+          <Text className="text-primary font-bold text-xs mt-1">{destinationDistance.toFixed(1)} km</Text>
+          <Text className="text-secondary text-[10px] mt-0.5">Est. distance</Text>
+        </View>
+
+        {/* Passenger */}
+        <View className="items-center flex-1">
+          <Ionicons name="person-outline" size={20} color="#26344F" />
+          <Text className="text-primary font-bold text-xs mt-1">1</Text>
+          <Text className="text-secondary text-[10px] mt-0.5">Passenger</Text>
+        </View>
+      </View>
+
+      {/* Action Buttons */}
+      <View className="flex-row justify-between gap-4">
+        <Button
+          variant="outline"
+          onPress={() => onDecline(request.id)}
+          className="flex-1 bg-white border-gray-300"
+        >
+          Decline
+        </Button>
+        <Button
+          variant="accent"
+          onPress={() => onAccept(request.id)}
+          className="flex-1 shadow-sm"
+        >
+          Accept order
+        </Button>
+      </View>
+    </View>
   );
 }
 

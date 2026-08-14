@@ -13,7 +13,7 @@
  */
 
 import { navigationEventBus } from './NavigationEvents';
-import { computeRouteProgress, evaluateReroute } from './RouteEngine';
+import { computeRouteProgress, evaluateReroute, snapToRoute } from './RouteEngine';
 import { useNavigationStore } from './NavigationStore';
 import type { GPSFix, LatLng, RouteData } from './types';
 
@@ -33,7 +33,8 @@ export function applyRouteProgress(position: LatLng, route: RouteData): void {
  * fix, once for progress) instead of once.
  */
 export function applyGpsFixWithProgress(fix: GPSFix, route: RouteData): void {
-  useNavigationStore.getState().setGpsFixWithProgress(fix, computeRouteProgress(fix.coordinate, route));
+  const snappedLocation = snapToRoute(fix.coordinate, route);
+  useNavigationStore.getState().setGpsFixWithProgress(fix, computeRouteProgress(fix.coordinate, route), snappedLocation);
 }
 
 /**

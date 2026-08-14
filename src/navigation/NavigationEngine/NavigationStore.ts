@@ -135,9 +135,9 @@ function applyTransition(
 type NavigationStore = NavigationState & NavigationActions & NavigationDataActions;
 
 /** Pure patch computation shared by `setGpsFix` and `setGpsFixWithProgress` (Phase 7F) — kept as one function so the two call sites can never drift apart on what a fix update actually changes. */
-function gpsFixPatch(fix: GPSFix): Pick<NavigationState, 'driverLocation' | 'heading' | 'speed' | 'gpsState'> {
+function gpsFixPatch(fix: GPSFix, snappedLocation?: LatLng): Pick<NavigationState, 'driverLocation' | 'heading' | 'speed' | 'gpsState'> {
   return {
-    driverLocation: fix.coordinate,
+    driverLocation: snappedLocation ?? fix.coordinate,
     heading: fix.heading ?? null,
     speed: fix.speed ?? null,
     gpsState: {
@@ -318,7 +318,7 @@ export const useNavigationStore = create<NavigationStore>()((set) => ({
     set((state) => routeProgressPatch(state, progress));
   },
 
-  setGpsFixWithProgress: (fix: GPSFix, progress: RouteProgress) => {
-    set((state) => ({ ...gpsFixPatch(fix), ...routeProgressPatch(state, progress) }));
+  setGpsFixWithProgress: (fix: GPSFix, progress: RouteProgress, snappedLocation: LatLng) => {
+    set((state) => ({ ...gpsFixPatch(fix, snappedLocation), ...routeProgressPatch(state, progress) }));
   },
 }));

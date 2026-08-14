@@ -243,9 +243,9 @@ export function DriverDashboard() {
         </View>
 
         {/* Dynamic Overlay for Requests */}
-        <View className="flex-1 justify-end px-5 pb-4" pointerEvents="box-none">
+        <View className="flex-1 justify-end" pointerEvents="box-none">
           {isOnline && (
-            <View className="max-h-[60%] mb-4" pointerEvents="box-none">
+            <View className="max-h-[60%]" pointerEvents="box-none">
               <ScrollView
                 showsVerticalScrollIndicator={false}
                 className="overflow-visible"
@@ -253,7 +253,7 @@ export function DriverDashboard() {
               >
                 {isRequestsLoading && incomingRequests.length === 0 ? (
                   [0, 1].map((i) => (
-                    <View key={i} className="mb-4" pointerEvents="none">
+                    <View key={i} className="mb-4 px-5" pointerEvents="none">
                       <Card variant="default" padding="none" radius="2xl">
                         <View className="flex-row items-center justify-between p-4 bg-accent/5 border-b border-gray-100">
                           <View className="flex-row items-center">
@@ -285,7 +285,6 @@ export function DriverDashboard() {
               </ScrollView>
             </View>
           )}
-
         </View>
       </SafeAreaView>
     </View>

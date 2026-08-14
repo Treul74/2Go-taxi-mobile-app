@@ -7,18 +7,28 @@ import { calculateDistanceMeters, formatManeuverDistance } from '@/lib/distance'
 import { type DirectionStep } from '@/lib/google/mapsApi';
 import { getManeuverIconName } from '@/lib/maneuverIcon';
 import { calculateBearing } from '@/lib/routeSnapping';
+import {
+  applyManualPose,
+  attachMap,
+  detachMap,
+  fitPointsNow,
+  getCurrentPose,
+  recenterOnLocation,
+  setChrome,
+  setViewportSize,
+} from '@/navigation/NavigationEngine/CameraController';
 import * as GPSManager from '@/navigation/NavigationEngine/GPSManager';
 import { fetchRoute } from '@/navigation/NavigationEngine/RouteEngine';
 import { useDriverStore } from '@/state';
 import type { Location } from '@/types';
+import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Animated, Keyboard, Pressable, ScrollView, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { Animated, Keyboard, Pressable, ScrollView, Text, View, type LayoutChangeEvent } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 /** Heading-up navigation camera tilt/zoom, matched to app/(driver)/navigation.tsx. */
 const NAV_CAMERA_PITCH = 45;
-const NAV_CAMERA_ALTITUDE = 500;
 const NAV_CAMERA_ZOOM = 17;
 
 /**
@@ -59,8 +69,42 @@ export default function DriverNavigateScreen() {
     const [lastInteraction, setLastInteraction] = useState(0);
 
     const mapRef = useRef<any>(null);
+    const insets = useSafeAreaInsets();
 
     // -- Effects --
+
+    // Attaches this screen's map to CameraController — the same
+    // attachMap/detachMap adapter CustomerHome.tsx/DriverDashboard.tsx use,
+    // scoped to focus (not just mount) so a driver navigating away to a real
+    // trip and back doesn't leave two screens fighting over the singleton.
+    // This screen never dispatches a NavigationMode transition (see the
+    // camera-migration prompt this satisfies): NavigationStore.mode may
+    // simultaneously belong to a real, unrelated active trip elsewhere in
+    // the app, so every camera move below goes through CameraController's
+    // mode-independent primitives (recenterOnLocation/applyManualPose/
+    // fitPointsNow) instead of a mode-driven one.
+    useFocusEffect(
+        useCallback(() => {
+            attachMap({
+                // `Map`'s exposed `animateCamera` takes a bare `duration?: number`,
+                // not CameraController's `{ duration }` options object — same
+                // unwrap NavigationMap.tsx/CustomerHome.tsx already do.
+                animateCamera: (camera, options) => {
+                    mapRef.current?.animateCamera?.(camera, options.duration);
+                },
+            });
+            return () => detachMap();
+        }, [])
+    );
+
+    useEffect(() => {
+        setChrome({ safeArea: insets });
+    }, [insets.top, insets.right, insets.bottom, insets.left]);
+
+    const handleMapLayout = useCallback((event: LayoutChangeEvent) => {
+        const { width, height } = event.nativeEvent.layout;
+        setViewportSize({ width, height });
+    }, []);
 
     // Update start location when driver location changes initially
     useEffect(() => {
@@ -101,8 +145,11 @@ export default function DriverNavigateScreen() {
             }
 
             // Heading-up camera: rotates so the direction of travel always
-            // faces up on screen, like Waze/Google Maps navigation.
-            if (isNavigatingRef.current && isAutoFollowRef.current && mapRef.current?.animateCamera) {
+            // faces up on screen, like Waze/Google Maps navigation. Routed
+            // through CameraController.applyManualPose (not a raw mapRef
+            // call) so this is still the engine's one animateCamera call
+            // site — see the useFocusEffect attachMap wiring above.
+            if (isNavigatingRef.current && isAutoFollowRef.current) {
                 // GPS heading is unreliable (0 or null) while stationary or at
                 // low speed — fall back to the bearing toward the upcoming
                 // maneuver instead of defaulting to 0 (which would snap the
@@ -115,14 +162,13 @@ export default function DriverNavigateScreen() {
                         : 0;
                 }
 
-                mapRef.current.animateCamera({
+                applyManualPose({
                     center: {
                         latitude: fix.coordinate.latitude,
                         longitude: fix.coordinate.longitude,
                     },
-                    heading: cameraHeading,
+                    bearing: cameraHeading,
                     pitch: NAV_CAMERA_PITCH,
-                    altitude: NAV_CAMERA_ALTITUDE,
                     zoom: NAV_CAMERA_ZOOM,
                 }, 700);
             }
@@ -184,12 +230,10 @@ export default function DriverNavigateScreen() {
             setRouteEta(route.durationText ?? `${Math.round(route.durationSeconds / 60)} min`);
             setActiveStepIndex(0);
 
-            // Fit to bounds
-            if (mapRef.current?.fitToCoordinates && route.path.length > 0) {
-                mapRef.current.fitToCoordinates(route.path, {
-                    edgePadding: { top: 100, right: 50, bottom: 100, left: 50 },
-                    animated: true,
-                });
+            // Fit to bounds — CameraController.fitPointsNow (AutoFitEngine's
+            // shared fit math), not a raw mapRef.fitToCoordinates call.
+            if (route.path.length > 0) {
+                fitPointsNow(route.path);
             }
         }
     };
@@ -242,7 +286,20 @@ export default function DriverNavigateScreen() {
     };
 
     const handleCompassPress = () => {
-        mapRef.current?.animateCamera?.({ heading: 0 }, 700);
+        // Reset bearing to north only — keep whatever center/pitch/zoom the
+        // camera is currently at. CameraController's pose model has no
+        // partial-update primitive (unlike react-native-maps' own
+        // animateCamera, which merges a partial camera object onto the
+        // current one), so the current pose is read back via
+        // getCurrentPose() and only its bearing is changed.
+        const current = getCurrentPose();
+        if (!current) return;
+        applyManualPose({
+            center: current.center,
+            bearing: 0,
+            pitch: current.pitch,
+            zoom: current.zoom,
+        }, 700);
     };
 
     const handleClear = () => {
@@ -262,12 +319,11 @@ export default function DriverNavigateScreen() {
         setIsNavigating(false);
         setIsAutoFollow(true);
         setMapSelectionTarget(null);
-        if (mapRef.current?.animateToRegion && currentLocation) {
-            mapRef.current.animateToRegion({
-                ...currentLocation,
-                latitudeDelta: 0.01,
-                longitudeDelta: 0.01,
-            });
+        // CameraController.recenterOnLocation (not a raw mapRef.animateToRegion
+        // call) — same "go to my location" one-shot every other screen's
+        // recenter button already uses.
+        if (currentLocation) {
+            recenterOnLocation(currentLocation);
         }
     };
 
@@ -281,17 +337,16 @@ export default function DriverNavigateScreen() {
             // The first GPS fix often has a stale/zero heading (device hasn't
             // moved yet), so derive an initial bearing from the route polyline
             // itself to rotate the map to face the direction of travel right away.
-            if (routeCoordinates.length >= 2 && mapRef.current?.animateCamera) {
+            if (routeCoordinates.length >= 2) {
                 const initialHeading = calculateBearing(routeCoordinates[0], routeCoordinates[1]);
                 const center = driverLocation || startLocation;
-                mapRef.current.animateCamera({
+                applyManualPose({
                     center: {
                         latitude: center.latitude,
                         longitude: center.longitude,
                     },
-                    heading: initialHeading,
+                    bearing: initialHeading,
                     pitch: NAV_CAMERA_PITCH,
-                    altitude: NAV_CAMERA_ALTITUDE,
                     zoom: NAV_CAMERA_ZOOM,
                 }, 700);
             }
@@ -338,7 +393,7 @@ export default function DriverNavigateScreen() {
 
     return (
         <View className="flex-1 bg-background">
-            <View className="absolute inset-0">
+            <View className="absolute inset-0" onLayout={handleMapLayout}>
                 <Map
                     ref={mapRef}
                     driverLocation={driverLocation || undefined}
@@ -346,6 +401,7 @@ export default function DriverNavigateScreen() {
                     navigationArrowMode={isNavigating}
                     hidePickupPin={isNavigating}
                     autoFollowDriver={!isNavigating}
+                    disableInternalCamera={isNavigating}
                     pickup={startLocation || undefined}
                     destination={destinationLocation || undefined}
                     showRoute={routeCoordinates.length > 0}

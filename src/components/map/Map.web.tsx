@@ -30,6 +30,7 @@ export function Map({
   mapType = 'standard',
   driverLocation,
   driverHeading = 0,
+  cameraBearing = 0,
   driverVehicleVariant = 'comfort',
   showSearchPulse = false,
   disableInternalCamera = false,
@@ -73,6 +74,7 @@ export function Map({
   const animatedDriver = useAnimatedMarkerWeb({
     coordinate: snappedDriver?.position ?? null,
     heading: snappedDriver?.heading ?? null,
+    cameraBearing,
     profile: DRIVER_MARKER_PROFILE,
   });
 

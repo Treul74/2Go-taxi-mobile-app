@@ -23,6 +23,8 @@ export interface UseAnimatedMarkerOptions {
    * heading is fixed on first render.
    */
   heading?: number;
+  /** Latest camera bearing in degrees. Used to compensate the marker's screen rotation when flat={false}. */
+  cameraBearing?: number;
   /** Override for the coordinate interpolation duration. */
   positionDurationMs?: number;
   /** Override for the rotation duration. */
@@ -49,6 +51,7 @@ export interface UseAnimatedMarkerOptions {
 export function useAnimatedMarker({
   coordinate,
   heading,
+  cameraBearing,
   positionDurationMs = MARKER_ANIMATION.positionDurationMs,
   rotationDurationMs = MARKER_ANIMATION.rotationDurationMs,
 }: UseAnimatedMarkerOptions) {
@@ -72,7 +75,7 @@ export function useAnimatedMarker({
     // Retarget from the current (possibly unwrapped) animated angle along the
     // shortest arc, then re-normalize once the rotation settles so the value
     // never grows unbounded across many turns.
-    const target = shortestRotation(rotation.value, heading);
+    const target = shortestRotation(rotation.value, heading - (cameraBearing ?? 0));
     rotation.value = withTiming(
       target,
       { duration: rotationDurationMs, easing: Easing.inOut(Easing.cubic) },
@@ -83,7 +86,7 @@ export function useAnimatedMarker({
         }
       }
     );
-  }, [heading, tracksHeading, rotationDurationMs, rotation]);
+  }, [heading, tracksHeading, rotationDurationMs, rotation, cameraBearing]);
 
   // Stop in-flight animations when the marker unmounts.
   useEffect(() => {

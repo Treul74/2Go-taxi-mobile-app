@@ -435,5 +435,5 @@ export interface NavigationDataActions {
    * state. Result is identical either way; only the number of intermediate
    * store commits differs.
    */
-  setGpsFixWithProgress: (fix: GPSFix, progress: RouteProgress) => void;
+  setGpsFixWithProgress: (fix: GPSFix, progress: RouteProgress, snappedLocation: LatLng) => void;
 }

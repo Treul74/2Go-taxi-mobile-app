@@ -14,6 +14,8 @@ export interface UseAnimatedMarkerWebOptions {
   coordinate: LatLng | null;
   /** Latest heading in degrees (0 = north), or `null`/omitted for markers that never rotate. */
   heading?: number | null;
+  /** Latest camera bearing in degrees. Used to compensate the marker's screen rotation. */
+  cameraBearing?: number | null;
   /** Timing profile — whether this marker kind tracks heading at all, and how long each timeline takes. See `MarkerAnimator`'s `DRIVER_MARKER_PROFILE`/`CUSTOMER_MARKER_PROFILE`/`NAVIGATION_ARROW_PROFILE`. */
   profile: MarkerProfile;
 }
@@ -43,7 +45,7 @@ export interface AnimatedMarkerWebFrame {
  * itself modeled on `useAnimatedMarker`'s `withTiming` retarget semantics so
  * the two renderers never visually disagree about what "smooth" means.
  */
-export function useAnimatedMarkerWeb({ coordinate, heading = null, profile }: UseAnimatedMarkerWebOptions): AnimatedMarkerWebFrame {
+export function useAnimatedMarkerWeb({ coordinate, heading = null, cameraBearing = null, profile }: UseAnimatedMarkerWebOptions): AnimatedMarkerWebFrame {
   const transitionRef = useRef<MarkerTransition | null>(null);
   const rafRef = useRef<number | null>(null);
   const [frame, setFrame] = useState<AnimatedMarkerWebFrame>({ position: coordinate, heading });
@@ -56,7 +58,8 @@ export function useAnimatedMarkerWeb({ coordinate, heading = null, profile }: Us
     if (!coordinate) return;
 
     const nowMs = Date.now();
-    const target: MarkerAnimationState = { position: coordinate, heading, timestampMs: nowMs };
+    const targetHeading = heading !== null ? heading - (cameraBearing ?? 0) : null;
+    const target: MarkerAnimationState = { position: coordinate, heading: targetHeading, timestampMs: nowMs };
 
     // First-ever fix: no prior state to animate from — start a transition
     // "from itself" (mirrors useAnimatedMarker's shared value initializing
@@ -85,7 +88,7 @@ export function useAnimatedMarkerWeb({ coordinate, heading = null, profile }: Us
       rafRef.current = requestAnimationFrame(tick);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- profile is a stable module-level constant (DRIVER_MARKER_PROFILE etc.), not expected to change identity per render
-  }, [coordinate?.latitude, coordinate?.longitude, heading]);
+  }, [coordinate?.latitude, coordinate?.longitude, heading, cameraBearing]);
 
   useEffect(() => {
     return () => {

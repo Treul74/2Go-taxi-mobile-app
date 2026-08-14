@@ -14,14 +14,15 @@ import {
   useCameraState,
   useDriverLocation,
   useHeading,
+  useBearing,
   useNavigationMode,
   useOverviewRoute,
   usePickupDestination,
 } from '@/navigation/NavigationEngine/NavigationHooks';
 import { NavigationMode } from '@/navigation/NavigationEngine/NavigationModes';
-import type { LatLng } from '@/navigation/NavigationEngine/types';
+import type { LatLng, EdgePadding } from '@/navigation/NavigationEngine/types';
 import { useUserStore } from '@/state';
-import React, { useCallback, useEffect, useMemo, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { StyleSheet, View, type LayoutChangeEvent } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -81,6 +82,7 @@ interface MapCameraRef {
 
 export function NavigationMap({ mapType, children }: NavigationMapProps) {
   const mapRef = useRef<MapCameraRef | null>(null);
+  const [mapPadding, setMapPadding] = useState<EdgePadding | undefined>(undefined);
 
   const mode = useNavigationMode();
   const { pickup, destination } = usePickupDestination();
@@ -90,6 +92,7 @@ export function NavigationMap({ mapType, children }: NavigationMapProps) {
   const overviewRoute = useOverviewRoute();
   const navigation = useNavigation();
   const cameraState = useCameraState();
+  const cameraBearing = useBearing();
   const safeAreaInsets = useSafeAreaInsets();
   const role = useUserStore((s) => s.role);
 
@@ -114,6 +117,7 @@ export function NavigationMap({ mapType, children }: NavigationMapProps) {
       animateCamera: (camera, options) => {
         mapRef.current?.animateCamera?.(camera, options.duration);
       },
+      setPadding: (padding) => setMapPadding(padding),
     });
     return () => detachMap();
   }, []);
@@ -194,6 +198,7 @@ export function NavigationMap({ mapType, children }: NavigationMapProps) {
         destination={destination ? toMapLocation(destination) : undefined}
         driverLocation={driverLocation ?? undefined}
         driverHeading={heading ?? 0}
+        cameraBearing={cameraBearing ?? 0}
         showRoute={!!route}
         routeCoordinates={route?.path ?? []}
         overviewRouteCoordinates={overviewRoute?.path ?? []}
@@ -203,6 +208,7 @@ export function NavigationMap({ mapType, children }: NavigationMapProps) {
         mapType={mapType}
         autoFollowDriver={false}
         disableInternalCamera
+        mapPadding={mapPadding}
         onPanDrag={handleUserGesture}
         // `Map`'s own zoom +/- buttons drive the camera directly via its
         // ref, bypassing CameraController — never requested here (Phase 6B:

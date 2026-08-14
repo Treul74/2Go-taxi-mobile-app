@@ -44,12 +44,11 @@
  */
 
 import { normalizeHeading } from '@/lib/mapAnimation';
-import { DEFAULT_CHROME, fitCompleted, fitPreview, type AutoFitChrome } from './AutoFitEngine';
+import { DEFAULT_CHROME, fitCompleted, fitPoints, fitPreview, mergeChromeIntoPadding, type AutoFitChrome } from './AutoFitEngine';
 import {
   applyCameraDamping,
   ARRIVAL_DURATION,
   calculateAnimationDuration,
-  calculateForwardOffset,
   calculateLookAheadDistance,
   calculateLookAheadPoint,
   calculateMovementThreshold,
@@ -216,6 +215,7 @@ export interface CameraControllerMapHandle {
     camera: { center: LatLng; heading: number; pitch: number; zoom: number },
     options: { duration: number }
   ) => void;
+  setPadding?: (padding: EdgePadding) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -351,6 +351,54 @@ export function recenterOnLocation(point: LatLng, zoom: number = RECENTER_ON_LOC
   applyPose(pose, RECENTER_DURATION, mode, cameraState);
 }
 
+/**
+ * Applies an exact, caller-supplied camera pose (center + bearing + pitch +
+ * zoom) to this controller's own tracked singleton map — the mode-independent
+ * counterpart to `recenterOnLocation` for a screen that needs a full pose
+ * move (heading-up rotation, a specific pitch/zoom) rather than a flat/north
+ * "center on this point." Intended for a screen whose attached map has no
+ * mode-driven camera opinion (per `CAMERA_PROFILES`'s `IDLE`/`OFFLINE` rows)
+ * but still owns its own turn-by-turn-style camera behavior outside the trip
+ * lifecycle — e.g. `app/(tabs)/navigate.tsx`'s standalone point-to-point
+ * navigation, which deliberately never calls a `NavigationActions` mode
+ * transition (it isn't a ride, and this device's `NavigationStore.mode` may
+ * simultaneously belong to a real trip elsewhere in the same app — driving
+ * this screen's camera through mode transitions would risk corrupting that
+ * trip's camera state). Applied through the same `mapHandle`/`applyPose`
+ * path every mode-driven camera update uses — this remains the one and only
+ * place `animateCamera` is ever called from, not a second camera pipeline.
+ * No-ops if no map is currently attached.
+ */
+export function applyManualPose(
+  pose: { center: LatLng; bearing: number; pitch: number; zoom: number },
+  durationMs: number = RECENTER_DURATION
+): void {
+  if (!mapHandle) return;
+
+  const { mode, cameraState } = useNavigationStore.getState();
+  applyPose({ ...pose, padding: DEFAULT_EDGE_PADDING, timestampMs: Date.now() }, durationMs, mode, cameraState);
+}
+
+/**
+ * One-shot "fit these points in view" request for this controller's own
+ * tracked singleton map — the mode-independent counterpart to
+ * `AutoFitEngine.fitPreview`/`fitCompleted` (which only ever run inside the
+ * mode-driven `recompute()` pipeline below) for the same kind of screen
+ * `applyManualPose` above serves. Reuses `AutoFitEngine.fitPoints` directly
+ * rather than any new bounds/zoom math — same north-up, flat framing every
+ * other fit shot in this engine produces. No-ops if no map is attached, or
+ * if `fitPoints` reports fewer than 2 valid points to fit (see its own doc).
+ */
+export function fitPointsNow(points: (LatLng | null | undefined)[], durationMs: number = ARRIVAL_DURATION): void {
+  if (!mapHandle) return;
+
+  const pose = fitPoints(points, viewportSize, chrome);
+  if (!pose) return;
+
+  const { mode, cameraState } = useNavigationStore.getState();
+  applyPose(pose, durationMs, mode, cameraState);
+}
+
 // ---------------------------------------------------------------------------
 // Store subscription
 // ---------------------------------------------------------------------------
@@ -466,9 +514,7 @@ function resolveFollowCenter(mode: NavigationMode, state: NavigationState): LatL
       const speed = state.speed ?? 0;
       const heading = state.heading ?? 0;
       const lookAhead = calculateLookAheadDistance(speed);
-      const anchorOffset = calculateForwardOffset(speed, CAMERA_PROFILES[mode].followAnchorRatio);
-      const totalForwardMeters = lookAhead + anchorOffset.forwardMeters;
-      return calculateLookAheadPoint(state.driverLocation, heading, totalForwardMeters).point;
+      return calculateLookAheadPoint(state.driverLocation, heading, lookAhead).point;
     }
     case NavigationMode.ARRIVED_PICKUP:
       return state.pickup;
@@ -489,12 +535,23 @@ function followOrArrivalPose(mode: NavigationMode, state: NavigationState): Came
   const pitch = dynamicPitchForMode(profile, speed);
   const zoom = profile.zoom === 'dynamic' ? dynamicZoomForSpeed(speed) : profile.zoom;
 
+  const basePadding = mergeChromeIntoPadding(chrome);
+  let padding = basePadding;
+
+  if (profile.followAnchorRatio !== 0.5 && viewportSize.height > 0) {
+    const requiredTop = basePadding.bottom + viewportSize.height * (2 * profile.followAnchorRatio - 1);
+    padding = {
+      ...basePadding,
+      top: Math.max(basePadding.top, requiredTop),
+    };
+  }
+
   return {
     center,
     bearing,
     pitch,
     zoom,
-    padding: DEFAULT_EDGE_PADDING,
+    padding,
     timestampMs: Date.now(),
   };
 }
@@ -582,10 +639,14 @@ function dampPose(from: CameraAnimationState, target: CameraAnimationState, damp
 function applyPose(pose: CameraAnimationState, durationMs: number, mode: NavigationMode, cameraState: NavigationState['cameraState']): void {
   if (!mapHandle) return;
 
-  // `pose.padding` isn't sent here: react-native-maps' `animateCamera`
-  // camera object has no padding field (only `fitToCoordinates` does) —
-  // padding already did its job inside `autoFitPose`'s zoom calculation, so
-  // by this point it's fully baked into `pose.zoom`.
+  // Native map engines do not support animating `mapPadding` via the `animateCamera`
+  // object. Instead, we must apply the padding directly to the MapView prop, which
+  // instantly shifts the viewport center that the camera animation then pivots around.
+  // For auto-fit poses, the padding has also been fully baked into `pose.zoom`.
+  if (mapHandle.setPadding) {
+    mapHandle.setPadding(pose.padding);
+  }
+
   mapHandle.animateCamera(
     { center: pose.center, heading: pose.bearing, pitch: pose.pitch, zoom: pose.zoom },
     { duration: durationMs }
