@@ -86,6 +86,7 @@ interface DriverState {
   completeTrip: (receiptData: TripCompletionInput) => Promise<boolean>;
   finishTrip: () => void;
   cancelTrip: () => void;
+  resetDriver: () => void;
   rateCustomer: (
     orderId: string,
     customerId: string,
@@ -515,5 +516,33 @@ export const useDriverStore = create<DriverState>((set, get) => ({
         },
       }));
     }
+  },
+
+  resetDriver: () => {
+    if (pollInterval) {
+      clearInterval(pollInterval);
+      pollInterval = null;
+    }
+    if (expiryInterval) {
+      clearInterval(expiryInterval);
+      expiryInterval = null;
+    }
+    set({
+      isOnline: false,
+      vehicleType: null,
+      currentLocation: null,
+      driverHex9: null,
+      nearbyHexes: [],
+      stats: mockStats,
+      incomingRequests: [],
+      isRequestsLoading: false,
+      currentTrip: null,
+      tripStatus: 'idle',
+      tripStartTime: null,
+      waitingStartTime: null,
+      waitingDuration: 0,
+      lastTripSummary: null,
+      startTripRetry: null,
+    });
   },
 }));

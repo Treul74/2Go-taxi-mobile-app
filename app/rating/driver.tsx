@@ -5,7 +5,7 @@ import { useDriverStore } from '@/state';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { BackHandler, Pressable, ScrollView, Text, View } from 'react-native';
 
 /**
  * Post-trip rating screen shown to the driver, reached from
@@ -24,9 +24,16 @@ export default function DriverRatingScreen() {
 
   useEffect(() => {
     if (!lastTripSummary) {
-      router.replace('/(customer)/(tabs)');
+      router.replace('/(driver)/(tabs)');
     }
   }, [lastTripSummary]);
+
+  // Prevent hardware back button from causing GO_BACK error since this screen is replaced onto the stack
+  useEffect(() => {
+    const onBackPress = () => true;
+    const subscription = BackHandler.addEventListener('hardwareBackPress', onBackPress);
+    return () => subscription.remove();
+  }, []);
 
   if (!lastTripSummary) return null;
 

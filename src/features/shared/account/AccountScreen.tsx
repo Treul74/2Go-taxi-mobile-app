@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { BackButton } from '@/components/ui';
 import { ProfileCard, RoleSwitcher, SavedAddressesList, MenuList } from './components';
-import { useAuthStore, useUserStore } from '@/state';
+import { useAuthStore, useUserStore, useDriverStore, useRideStore, useDriverWalletStore } from '@/state';
 import { insforge } from '@/lib/insforge';
 
 interface AccountScreenProps {
@@ -40,9 +40,22 @@ export function AccountScreen({ onBack }: AccountScreenProps) {
 
   // Driver mode is only reachable with an approved drivers row — enforced
   // here as well as in the RoleSwitcher UI so no tap path can bypass it.
-  const handleRoleChange = (targetRole: typeof role) => {
+  const handleRoleChange = async (targetRole: typeof role) => {
     const canAccessDriverMode = targetRole === 'driver' && driverAccount?.accountStatus === 'approved';
-    setRole(targetRole);
+    const finalRole = canAccessDriverMode ? 'driver' : 'passenger';
+    
+    // Clear previous state and go offline if switching away from driver mode
+    if (finalRole === 'driver') {
+      useRideStore.getState().resetRide();
+    } else {
+      if (driverAccount) {
+        await useDriverStore.getState().goOffline(driverAccount.id);
+      }
+      useDriverStore.getState().resetDriver();
+      useDriverWalletStore.getState().reset();
+    }
+    
+    setRole(finalRole);
     router.replace(canAccessDriverMode ? '/(driver)/(tabs)' : '/(customer)/discover');
   };
 

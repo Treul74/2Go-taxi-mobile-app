@@ -4,7 +4,7 @@ import { useDriverStore } from '@/state';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import React, { useEffect } from 'react';
-import { Text, View } from 'react-native';
+import { BackHandler, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { TripSummaryCard } from '@/features/driver/trip';
@@ -28,6 +28,13 @@ export default function DriverTripSummaryScreen() {
       router.replace('/(driver)/(tabs)');
     }
   }, [lastTripSummary]);
+
+  // Prevent hardware back button from causing GO_BACK error since this screen is replaced onto the stack
+  useEffect(() => {
+    const onBackPress = () => true;
+    const subscription = BackHandler.addEventListener('hardwareBackPress', onBackPress);
+    return () => subscription.remove();
+  }, []);
 
   if (!lastTripSummary) return null;
 

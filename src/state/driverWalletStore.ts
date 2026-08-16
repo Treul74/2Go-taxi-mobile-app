@@ -37,6 +37,7 @@ interface WalletState {
     // Actions
     addTransaction: (receipt: TripReceipt) => void;
     resetDailyStats: () => void; // Call this on new day
+    reset: () => void; // Clear all data
     withdraw: (amount: number) => boolean;
     // Syncs balance/earnings/transactions from the InsForge wallet ledger
     // (drivers.wallet_balance + wallet_transactions), the source of truth
@@ -68,6 +69,16 @@ export const useDriverWalletStore = create<WalletState>()(
                 set({
                     todayEarnings: 0,
                     totalTripsToday: 0,
+                });
+            },
+
+            reset: () => {
+                set({
+                    availableBalance: 0,
+                    todayEarnings: 0,
+                    weekEarnings: 0,
+                    totalTripsToday: 0,
+                    transactions: [],
                 });
             },
 
