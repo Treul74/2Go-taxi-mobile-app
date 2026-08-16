@@ -89,16 +89,7 @@ export function DriverDashboard() {
     }
   }, [driverLocation, followMode]);
 
-  // Leave the pending-orders realtime channel on unmount regardless of
-  // online state, so navigating away never leaves a dangling subscription.
-  useEffect(() => {
-    return () => {
-      const id = useUserStore.getState().driverAccount?.id;
-      if (useDriverStore.getState().isOnline && id) {
-        useDriverStore.getState().goOffline(id);
-      }
-    };
-  }, []);
+
 
   // Slide-to-go-online/offline: persists driver_status to InsForge first,
   // then (online only) fetches + subscribes to real pending orders matching
