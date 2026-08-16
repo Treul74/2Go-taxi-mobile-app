@@ -1,5 +1,5 @@
 import { getHex9 } from '@/core/spatialEngine';
-import { vehicleIcons } from '@/features/customer/components/VehicleCard';
+import { vehicleIcons } from '@/features/customer/booking/VehicleCard';
 import { getActiveFareSurcharge } from '@/lib/fareSurcharge';
 import { getDistanceMatrix } from '@/lib/google/mapsApi';
 import {
@@ -10,22 +10,20 @@ import {
   subscribeToOrderUpdates,
   unsubscribeFromOrder,
   type OrderUpdatePayload,
-} from '@/services/orders';
+} from '@/features/customer/services/orders';
 import { submitRating } from '@/services/ratings';
-import { isWithinServiceArea } from '@/services/serviceAreas';
-import { fetchActiveVehicleClasses } from '@/services/vehicleClasses';
+import { isWithinServiceArea } from '@/features/customer/services/serviceAreas';
+import { fetchActiveVehicleClasses } from '@/features/customer/services/vehicleClasses';
 import { useAuthStore } from '@/state/authStore';
 import type {
   ActiveTrip,
-  CancellationReason,
   Location,
   PaymentMethod,
-  RideHistoryItem,
   RideMode,
   RideStatus,
-  VehicleOption,
   VehicleType
 } from '@/types';
+import type { CancellationReason, RideHistoryItem, VehicleOption } from '@/features/customer/types';
 import { router } from 'expo-router';
 import { create } from 'zustand';
 

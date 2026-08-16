@@ -173,7 +173,7 @@ export function SignupScreen() {
       }
 
       await setAuthed(true, data?.refreshToken, data?.user?.id);
-      router.replace('/discover');
+      router.replace('/(customer)/discover');
     }
   };
 

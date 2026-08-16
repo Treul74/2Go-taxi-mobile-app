@@ -1,4 +1,4 @@
-import { FareReceiptModal } from '@/features/customer/components';
+import { FareReceiptModal } from '@/features/customer/trip';
 import { insforge } from '@/lib/insforge';
 import '@/lib/polyfills';
 import { NavigationProvider } from '@/navigation/NavigationEngine/providers/NavigationProvider';
@@ -192,73 +192,60 @@ export default function RootLayout() {
   // stack becomes reachable, and never again this session. Customers land
   // on the 'Where to?' discover screen; a restored driver session (see
   // userStore.loadAccounts) lands directly on the driver tabs instead.
-  const hasLandedOnLaunch = useRef(false);
-  useEffect(() => {
-    if (!appReady || !authed || hasLandedOnLaunch.current) return;
-    hasLandedOnLaunch.current = true;
-    const { role, driverAccount } = useUserStore.getState();
-    const canAccessDriverMode = role === 'driver' && driverAccount?.accountStatus === 'approved';
-    router.replace(canAccessDriverMode ? '/(tabs)' : '/discover');
-  }, [appReady, authed]);
+    const hasLandedOnLaunch = useRef(false);
+    useEffect(() => {
+        if (!appReady || !authed || hasLandedOnLaunch.current) return;
+        hasLandedOnLaunch.current = true;
+        const { role, driverAccount } = useUserStore.getState();
+        const canAccessDriverMode = role === 'driver' && driverAccount?.accountStatus === 'approved';
+        router.replace(canAccessDriverMode ? '/(driver)/(tabs)' : '/(customer)/discover');
+    }, [appReady, authed]);
 
-  return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
-      <NavigationProvider>
-      <SafeAreaProvider>
-        <StatusBar style="dark" />
-        {!appReady ? (
-          <View className="flex-1 items-center justify-center bg-background">
-            {sessionCheck === 'retry' || retryingAccountLoad ? (
-              <View className="items-center px-6">
-                <ActivityIndicator size="large" color="#FE5035" />
-                <Text className="text-primary mt-4 text-center">
-                  We’re reconnecting your account details. Please wait a moment.
-                </Text>
-              </View>
-            ) : (
-              <ActivityIndicator size="large" color="#FE5035" />
-            )}
-          </View>
-        ) : (
-          <Stack
-            screenOptions={{
-              headerShown: false,
-              contentStyle: { backgroundColor: '#E7F1F9' },
-            }}
-          >
-            {/* Rule 1: no AUTH_KEY yet — always show onboarding first */}
-            <Stack.Protected guard={!hasLoggedInBefore}>
-              <Stack.Screen name="welcome" options={{ headerShown: false }} />
-            </Stack.Protected>
+    return (
+        <GestureHandlerRootView style={{ flex: 1 }}>
+            <NavigationProvider>
+            <SafeAreaProvider>
+                <StatusBar style="dark" />
+                {!appReady ? (
+                    <View className="flex-1 items-center justify-center bg-background">
+                        {sessionCheck === 'retry' || retryingAccountLoad ? (
+                            <View className="items-center px-6">
+                                <ActivityIndicator size="large" color="#FE5035" />
+                                <Text className="text-primary mt-4 text-center">
+                                    We’re reconnecting your account details. Please wait a moment.
+                                </Text>
+                            </View>
+                        ) : (
+                            <ActivityIndicator size="large" color="#FE5035" />
+                        )}
+                    </View>
+                ) : (
+                    <Stack
+                        screenOptions={{
+                            headerShown: false,
+                            contentStyle: { backgroundColor: '#E7F1F9' },
+                        }}
+                    >
+                        {/* Rule 1: no AUTH_KEY yet — always show onboarding first */}
+                        <Stack.Protected guard={!hasLoggedInBefore}>
+                            <Stack.Screen name="(auth)/welcome" options={{ headerShown: false }} />
+                        </Stack.Protected>
 
-            {/* Rule 2 + normal login/signup/otp flow — reachable whenever the
-                current session hasn't authenticated yet, whether that's a
-                brand-new user coming from onboarding or a returning user
-                (AUTH_KEY exists) landing straight here, skipping onboarding */}
-            <Stack.Protected guard={!authed}>
-              <Stack.Screen name="auth" options={{ headerShown: false }} />
-              <Stack.Screen name="signup" options={{ headerShown: false }} />
-              <Stack.Screen name="otp" options={{ headerShown: false }} />
-              <Stack.Screen name="forgot-password" options={{ headerShown: false }} />
-            </Stack.Protected>
+                        {/* Rule 2 + normal login/signup/otp flow — reachable whenever the
+                                current session hasn't authenticated yet, whether that's a
+                                brand-new user coming from onboarding or a returning user
+                                (AUTH_KEY exists) landing straight here, skipping onboarding */}
+                        <Stack.Protected guard={!authed}>
+                            <Stack.Screen name="(auth)/auth" options={{ headerShown: false }} />
+                            <Stack.Screen name="(auth)/signup" options={{ headerShown: false }} />
+                            <Stack.Screen name="(auth)/otp" options={{ headerShown: false }} />
+                            <Stack.Screen name="(auth)/forgot-password" options={{ headerShown: false }} />
+                        </Stack.Protected>
 
-            {/* Main app — only once OTP has been verified this session.
-                'discover' is declared first so it's the default landing
-                screen for this group (React Navigation uses the first
-                Stack.Screen as the initial route when none is specified) —
-                customers see it before the map-based (tabs) home screen. */}
-            <Stack.Protected guard={authed}>
-              <Stack.Screen name="discover" options={{ headerShown: false }} />
-              <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-              <Stack.Screen name="(driver)" options={{ headerShown: false }} />
-              <Stack.Screen name="(customer)" options={{ headerShown: false }} />
-              <Stack.Screen
-                name="rating/[id]"
-                options={{
-                  headerShown: false,
-                  gestureEnabled: false,
-                }}
-              />
+                        {/* Main app — only once OTP has been verified this session. */}
+                        <Stack.Protected guard={authed}>
+                            <Stack.Screen name="(customer)" options={{ headerShown: false }} />
+                            <Stack.Screen name="(driver)" options={{ headerShown: false }} />
               <Stack.Screen
                 name="rating/driver"
                 options={{
@@ -266,16 +253,7 @@ export default function RootLayout() {
                   gestureEnabled: false,
                 }}
               />
-              <Stack.Screen
-                name="ride/[id]"
-                options={{
-                  presentation: 'card',
-                  headerShown: true,
-                  headerTitle: 'Ride Details',
-                  headerTintColor: '#26344F',
-                  headerStyle: { backgroundColor: '#E7F1F9' },
-                }}
-              />
+
               <Stack.Screen
                 name="chat/[id]"
                 options={{
@@ -284,22 +262,6 @@ export default function RootLayout() {
                   headerTitle: 'Chat',
                   headerTintColor: '#26344F',
                   headerStyle: { backgroundColor: '#E7F1F9' },
-                }}
-              />
-              <Stack.Screen
-                name="driver/onboarding"
-                options={{
-                  presentation: 'modal',
-                  headerShown: true,
-                  headerTitle: 'Become a Driver',
-                  headerTintColor: '#26344F',
-                  headerStyle: { backgroundColor: '#E7F1F9' },
-                }}
-              />
-              <Stack.Screen
-                name="modal"
-                options={{
-                  presentation: 'modal',
                 }}
               />
             </Stack.Protected>

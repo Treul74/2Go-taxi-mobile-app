@@ -3,5 +3,4 @@ export type { AnimatedMarkerCoordinate, UseAnimatedMarkerOptions } from './useAn
 export { useAnimatedMarkerWeb } from './useAnimatedMarkerWeb';
 export type { AnimatedMarkerWebFrame, UseAnimatedMarkerWebOptions } from './useAnimatedMarkerWeb';
 export { useCurrentLocation } from './useCurrentLocation';
-export { useDriverTelemetryPing } from './useDriverTelemetryPing';
 

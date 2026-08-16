@@ -1,3 +1,4 @@
 export { CustomerHome } from './CustomerHome';
-export * from './components';
-
+export * from './trip';
+export * from './activity';
+export * from './booking';

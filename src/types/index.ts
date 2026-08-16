@@ -97,16 +97,6 @@ export type RideStatus =
 
 export type PaymentMethod = 'cash' | 'mobile_money' | 'card';
 
-export interface VehicleOption {
-  id: VehicleType;
-  name: string;
-  description: string;
-  icon: string;
-  estimatedFare: number;
-  eta: number; // minutes
-  capacity: number;
-}
-
 export interface Location {
   latitude: number;
   longitude: number;
@@ -114,23 +104,6 @@ export interface Location {
   hex9?: string; // H3 hexagon index (resolution 9)
   plusCode?: string; // Open Location Code for this point
   district?: string | null; // District/locality name, if resolved
-}
-
-export interface RideRequest {
-  id: string;
-  pickup: Location;
-  destination: Location;
-  vehicleType: VehicleType;
-  mode: RideMode;
-  paymentMethod: PaymentMethod;
-  estimatedFare: number;
-  eta: number;
-  scheduledFor?: Date;
-  bookingFor?: {
-    name: string;
-    phone: string;
-  };
-  driverInstructions?: string;
 }
 
 export interface ActiveTrip {
@@ -165,86 +138,6 @@ export interface DriverInfo {
   hex9?: string; // Last known H3 hexagon index
 }
 
-
-// Driver Types
-export interface DriverStats {
-  earningsToday: number;
-  earningsWeek: number;
-  tripsToday: number;
-  tripsWeek: number;
-  averageRating: number;
-  acceptanceRate: number;
-}
-
-export interface IncomingRequest {
-  id: string;
-  pickup: Location;
-  destination: Location;
-  estimatedFare: number;
-  distance: number; // km, from the driver's current location to pickup
-  // Customer identity isn't visible pre-acceptance (RLS only grants a driver
-  // read access to the customer of an order once driver_id is set to them).
-  // Placeholder until then; patched with the real name/rating/id after accept.
-  customerName: string;
-  customerRating: number;
-  customerId?: string;
-  expiresAt: Date;
-}
-
-// Populated once completeOrderTrip() succeeds; read by the driver's
-// trip-summary screen, then cleared when the driver returns home.
-export interface TripSummary {
-  tripId: string;
-  customerName: string;
-  customerId: string;
-  distance: number; // km
-  duration: number; // minutes
-  waitingDuration: number; // minutes
-  fareAmount: number;
-  serviceFeeAmount: number;
-  netEarnings: number;
-}
-
-// Trip facts the driver app reports at completion -- no fare fields. The
-// server computes fare_amount/service_fee_amount/driver_earnings from
-// distance/waitingDuration and its own server-stamped timestamps.
-export interface TripCompletionInput {
-  customerName: string;
-  distance: number; // actual distance driven, km
-  duration: number; // minutes, local display only -- not sent to the server
-  waitingDuration: number; // minutes
-  completedAt: string; // ISO timestamp
-}
-
-// Activity & History
-export type RideHistoryStatus = 'completed' | 'cancelled' | 'scheduled';
-
-export type CancellationReason =
-  | 'changed_plans'
-  | 'driver_too_far'
-  | 'long_wait'
-  | 'wrong_location'
-  | 'found_alternative'
-  | 'price_too_high'
-  | 'other';
-
-export interface RideHistoryItem {
-  id: string;
-  date: Date;
-  pickup: Location;
-  destination: Location;
-  status: RideHistoryStatus;
-  fare?: number;
-  baseFare?: number;
-  driver?: DriverInfo;
-  vehicleType: VehicleType;
-  mode: RideMode;
-  rating?: number;
-  duration?: number; // minutes
-  cancellationReason?: CancellationReason;
-  cancellationNote?: string;
-}
-
 // Messaging
 export interface Conversation {
   id: string;
@@ -266,34 +159,5 @@ export interface Message {
   isRead: boolean;
 }
 
-// Driver Onboarding
-export type OnboardingStep = 'personal' | 'vehicle' | 'documents' | 'complete';
-
-export interface DriverOnboardingData {
-  currentStep: OnboardingStep;
-  personalInfo: {
-    firstName: string;
-    lastName: string;
-    email: string;
-    phone: string;
-    dateOfBirth: string;
-    nationalId: string;
-    address: string;
-  } | null;
-  vehicleInfo: {
-    make: string;
-    model: string;
-    year: string;
-    color: string;
-    plate: string;
-    vehicleType: VehicleType;
-  } | null;
-  documents: {
-    driverLicense: UploadedDocument | null;
-    vehicleRegistration: UploadedDocument | null;
-    insurance: UploadedDocument | null;
-    profilePhoto: UploadedDocument | null;
-  };
-  isComplete: boolean;
-}
+// Populated by specific domains
 
