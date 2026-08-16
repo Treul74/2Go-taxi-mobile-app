@@ -2,12 +2,11 @@ import { fetchCustomerAccount, fetchDriverAccount } from '@/services/accounts';
 import type {
     CustomerAccount,
     DriverAccount,
-    DriverOnboardingData,
-    OnboardingStep,
     SavedAddress,
     UserProfile,
     UserRole,
 } from '@/types';
+import type { DriverOnboardingData, OnboardingStep } from '@/features/driver/types';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { create } from 'zustand';
 

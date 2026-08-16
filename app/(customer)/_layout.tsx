@@ -14,6 +14,23 @@ export default function CustomerLayout() {
       }}
     >
       <Stack.Screen name="trip" />
+      <Stack.Screen
+        name="ride/[id]"
+        options={{
+          presentation: 'card',
+          headerShown: true,
+          headerTitle: 'Ride Details',
+          headerTintColor: '#26344F',
+          headerStyle: { backgroundColor: '#E7F1F9' },
+        }}
+      />
+      <Stack.Screen
+        name="rating/[id]"
+        options={{
+          headerShown: false,
+          gestureEnabled: false,
+        }}
+      />
     </Stack>
   );
 }

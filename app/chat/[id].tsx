@@ -14,7 +14,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router, Stack } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { IconButton } from '@/components/ui';
-import { MessageBubble } from '@/features/messaging/components';
+import { MessageBubble } from '@/features/shared/messaging';
 import { useDriverStore, useMessagingStore, useRideStore, useUserStore } from '@/state';
 
 /**

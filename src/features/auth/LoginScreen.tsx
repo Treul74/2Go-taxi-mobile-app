@@ -71,7 +71,7 @@ export function LoginScreen() {
     }
 
     await setAuthed(true, data?.refreshToken, userId);
-    router.replace('/discover');
+    router.replace('/(customer)/discover');
   };
 
   const handleForgotPress = () => {

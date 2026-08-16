@@ -38,13 +38,13 @@ export default function RatingScreen() {
     }
     resetRide();
     safeTransition(() => navigation.reset());
-    router.replace('/discover');
+    router.replace('/(customer)/discover');
   };
 
   const handleSkip = () => {
     resetRide();
     safeTransition(() => navigation.reset());
-    router.replace('/discover');
+    router.replace('/(customer)/discover');
   };
 
   const driverName = ride?.driver?.name ?? 'your driver';

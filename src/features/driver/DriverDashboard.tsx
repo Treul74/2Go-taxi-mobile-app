@@ -11,7 +11,8 @@ import React, { useEffect } from 'react';
 import { Alert, ScrollView, StatusBar, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { DashboardStats, OnlineToggle, RequestCard } from './components';
+import { DashboardStats, OnlineToggle } from './components';
+import { RequestCard } from './requests';
 
 /**
  * Driver Dashboard Screen

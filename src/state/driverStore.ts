@@ -8,14 +8,15 @@ import {
   markDriverArrived,
   startOrderTrip,
   type PendingOrderPayload,
-} from '@/services/driverOrders';
+} from '@/features/driver/services/driverOrders';
 import { setDriverStatus } from '@/services/accounts';
 import { submitDriverRating } from '@/services/ratings';
 import { isTransientFailureMessage, withRetry } from '@/lib/withRetry';
 import { useAuthStore } from '@/state/authStore';
 import { useDriverWalletStore } from '@/state/driverWalletStore';
 import { useUserStore } from '@/state/userStore';
-import type { DriverStats, IncomingRequest, TripCompletionInput, TripSummary, VehicleType } from '@/types';
+import type { VehicleType } from '@/types';
+import type { DriverStats, IncomingRequest, TripCompletionInput, TripSummary } from '@/features/driver/types';
 import { create } from 'zustand';
 
 // Intervals outside of store to avoid type issues with Node vs Browser types

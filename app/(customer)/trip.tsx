@@ -1,6 +1,6 @@
 import { NavigationCompass, NavigationControls, NavigationMap } from '@/components/navigation';
 import { Button, Card, IconButton } from '@/components/ui';
-import { CancellationModal } from '@/features/customer/components';
+import { CancellationModal } from '@/features/customer/trip';
 import { formatDisplayAddress } from '@/lib';
 import { useNavigation } from '@/navigation/NavigationEngine/hooks/useNavigation';
 import { NavigationMode } from '@/navigation/NavigationEngine/NavigationModes';
@@ -8,7 +8,8 @@ import { useNavigationStore } from '@/navigation/NavigationEngine/NavigationStor
 import { safeTransition } from '@/navigation/NavigationEngine/safeTransition';
 import type { LatLng, NavigationActions } from '@/navigation/NavigationEngine/types';
 import { useRideStore } from '@/state';
-import type { ActiveTrip, CancellationReason } from '@/types';
+import type { ActiveTrip } from '@/types';
+import type { CancellationReason } from '@/features/customer/types';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import React, { useEffect, useState } from 'react';
@@ -132,7 +133,7 @@ export default function CustomerTripScreen() {
       if (status === 'completed') {
         return;
       }
-      router.replace('/(tabs)');
+      router.replace('/(customer)/(tabs)');
     }
   }, [status, activeTrip, fareReceipt]);
 

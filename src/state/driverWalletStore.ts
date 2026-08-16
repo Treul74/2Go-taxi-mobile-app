@@ -1,4 +1,4 @@
-import { fetchDriverWallet } from '@/services/wallet';
+import { fetchDriverWallet } from '@/features/driver/services/wallet';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';

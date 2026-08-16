@@ -5,12 +5,11 @@ import {
     NavigationLaneGuidance,
     NavigationMap,
     NavigationRoadName,
-    NavigationSpeedWidget,
     NavigationTurnBanner,
-    DriverActiveTripCard,
 } from '@/components/navigation';
+import { DriverActiveTripCard } from '@/features/driver/trip';
 // import { RideActionSlider } from '@/components/ui';
-import { useDriverTelemetryPing } from '@/hooks';
+import { useDriverTelemetryPing } from '@/features/driver/hooks';
 import { calculateDistanceKm } from '@/lib/distance';
 import * as GPSManager from '@/navigation/NavigationEngine/GPSManager';
 import { useNavigation } from '@/navigation/NavigationEngine/hooks/useNavigation';
@@ -241,7 +240,7 @@ export default function DriverTripScreen() {
     // Redirect if no active trip
     useEffect(() => {
         if (!currentTrip) {
-            router.replace('/(tabs)');
+            router.replace('/(driver)/(tabs)');
         }
     }, [currentTrip]);
 

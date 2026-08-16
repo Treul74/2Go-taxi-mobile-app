@@ -24,7 +24,7 @@ export default function DriverRatingScreen() {
 
   useEffect(() => {
     if (!lastTripSummary) {
-      router.replace('/(tabs)');
+      router.replace('/(customer)/(tabs)');
     }
   }, [lastTripSummary]);
 
@@ -42,13 +42,13 @@ export default function DriverRatingScreen() {
     }
     safeTransition(() => navigation.reset());
     finishTrip();
-    router.replace('/(tabs)');
+    router.replace('/(driver)/(tabs)');
   };
 
   const handleSkip = () => {
     safeTransition(() => navigation.reset());
     finishTrip();
-    router.replace('/(tabs)');
+    router.replace('/(driver)/(tabs)');
   };
 
   const initials = lastTripSummary?.customerName

@@ -5,8 +5,8 @@
 
 export * from './customer';
 export * from './driver';
-export * from './activity';
-export * from './messaging';
-export * from './account';
-export * from './onboarding';
+
+export * from './shared/messaging';
+export * from './shared/account';
+export * from './driver/onboarding';
 

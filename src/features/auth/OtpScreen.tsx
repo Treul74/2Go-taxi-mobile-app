@@ -137,7 +137,7 @@ export function OtpScreen() {
     }
 
     await setAuthed(true, data?.refreshToken, data?.user?.id);
-    router.replace('/discover');
+    router.replace('/(customer)/discover');
   };
 
   const formatCountdown = (s: number) =>

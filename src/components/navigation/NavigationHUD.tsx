@@ -10,11 +10,10 @@ import { NavigationCompass } from './NavigationCompass';
 import { NavigationControls, type NavigationControlsProps } from './NavigationControls';
 import { NavigationLaneGuidance } from './NavigationLaneGuidance';
 import { NavigationRoadName } from './NavigationRoadName';
-import { NavigationSpeedWidget, type NavigationSpeedWidgetProps } from './NavigationSpeedWidget';
 import { NavigationTurnBanner } from './NavigationTurnBanner';
 import { NavigationVoiceToggle } from './NavigationVoiceToggle';
 
-export interface NavigationHUDProps extends NavigationControlsProps, NavigationSpeedWidgetProps {}
+export interface NavigationHUDProps extends NavigationControlsProps {}
 
 /** Top-right ETA/remaining-distance chip (Bible: "Top Right: Clock, ETA, Location, Remaining distance") — no separate named Bible component for it, so it lives directly in the HUD layout rather than as its own file. */
 function EtaChip() {
@@ -45,7 +44,7 @@ function EtaChip() {
  * Remaining distance. Bottom Left: Current speed, Speed limit. Right Side:
  * Layers, Compass, Center, Zoom."). Composes the individually-reusable
  * pieces (`NavigationTurnBanner`, `NavigationRoadName`,
- * `NavigationLaneGuidance`, `NavigationArrivalTime`, `NavigationSpeedWidget`,
+ * `NavigationLaneGuidance`, `NavigationArrivalTime`,
  * `NavigationCompass`, `NavigationControls`, `NavigationVoiceToggle`) into
  * the Bible's layout — a screen that wants a custom arrangement can render
  * those pieces directly instead of this composite.
@@ -61,7 +60,7 @@ function EtaChip() {
  * on every wrapping layer so map gestures (pan/pinch/tap) still reach the
  * map beneath wherever the HUD itself has nothing drawn.
  */
-export function NavigationHUD({ onZoomIn, onZoomOut, onToggleLayers, speedLimitKph }: NavigationHUDProps) {
+export function NavigationHUD({ onZoomIn, onZoomOut, onToggleLayers }: NavigationHUDProps) {
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
       <SafeAreaView className="flex-1" edges={['top', 'bottom']} pointerEvents="box-none">
@@ -81,8 +80,7 @@ export function NavigationHUD({ onZoomIn, onZoomOut, onToggleLayers, speedLimitK
 
         <View className="flex-1" pointerEvents="box-none" />
 
-        <View className="flex-row justify-between items-end px-4 pb-2 gap-3">
-          <NavigationSpeedWidget speedLimitKph={speedLimitKph} />
+        <View className="flex-row justify-end items-end px-4 pb-2 gap-3">
           <View className="items-center gap-3">
             <NavigationVoiceToggle />
             <NavigationCompass />

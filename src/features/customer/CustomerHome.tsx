@@ -13,9 +13,10 @@ import { useNavigationMode } from '@/navigation/NavigationEngine/NavigationHooks
 import { NavigationMode } from '@/navigation/NavigationEngine/NavigationModes';
 import { useNavigationStore } from '@/navigation/NavigationEngine/NavigationStore';
 import { safeTransition } from '@/navigation/NavigationEngine/safeTransition';
-import { findNearbyDrivers } from '@/services/discoveryEngine';
+import { findNearbyDrivers } from '@/features/customer/services/discoveryEngine';
 import { useRideStore, useSettingsStore } from '@/state';
-import type { CancellationReason, Location as GeoLocation } from '@/types';
+import type { Location as GeoLocation } from '@/types';
+import type { CancellationReason } from '@/features/customer/types';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
@@ -31,7 +32,8 @@ import {
   withTiming,
 } from 'react-native-reanimated';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ActiveTripCard, CancellationModal, MatchingOverlay, RidePlannerSheet } from './components';
+import { MatchingOverlay, RidePlannerSheet } from './booking';
+import { ActiveTripCard, CancellationModal } from './trip';
 
 // Simulated nearby Driver vehicles shown idling around the customer
 // while there's no live driver location to display yet.

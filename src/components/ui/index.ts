@@ -4,6 +4,8 @@
  */
 
 export { BackButton } from './BackButton';
+export * from './collapsible';
+export * from './RideActionSlider';
 export { BottomSheet } from './BottomSheet';
 export type { BottomSheetRef, BottomSheetState } from './BottomSheet';
 export { Button } from './Button';
@@ -14,7 +16,4 @@ export { IconButton } from './IconButton';
 export { Input } from './Input';
 export { Pill } from './Pill';
 export { RatingStars } from './RatingStars';
-export { RideActionSlider } from './RideActionSlider';
-export { SegmentedControl } from './SegmentedControl';
 export { SkeletonBox } from './SkeletonBox';
-
